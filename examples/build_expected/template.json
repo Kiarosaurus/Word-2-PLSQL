@@ -1,0 +1,142 @@
+{
+  "schema_version": "1.0",
+  "compiler": {
+    "name": "apex-word-report-compiler",
+    "version": "1.0.0"
+  },
+  "source": {
+    "file_name": "entidades.docx",
+    "sha256": "cc7a3b375630dd005c97210dc206a95e1a2e5b5b44e6e054c3cb227e6996562e"
+  },
+  "report": {
+    "id": "ENTIDADES",
+    "header_template": "{{REPORT_TITLE}}",
+    "title_value": "Relación de entidades",
+    "footer_template": "Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}",
+    "orientation": "LANDSCAPE",
+    "max_rows": 2000,
+    "file_name": "reporte_entidades"
+  },
+  "query": {
+    "sql": "select e.vdni          as vdni,\n       e.vnom          as vnom,\n       e.vdirec_actual as vdirec_actual,\n       d.descripcion   as departamento,\n       di.descripcion  as distrito,\n       e.vnro_tlf1     as vnro_tlf1\n  from entidad e\n  left join mae_departamento d\n    on d.id = e.departamento_id\n  left join mae_distrito di\n    on di.id = e.distrito_id\n where (:DNI is null or e.vdni = :DNI)\n   and (:DEPARTAMENTO_ID is null or e.departamento_id = :DEPARTAMENTO_ID)\n   and (:FECHA_DESDE is null or e.fecha_registro >= :FECHA_DESDE)\n order by e.vnom",
+    "bindings": [
+      {
+        "bind": "DNI",
+        "item": "P42_DNI",
+        "type": "VARCHAR2",
+        "required": false
+      },
+      {
+        "bind": "DEPARTAMENTO_ID",
+        "item": "P42_DEPARTAMENTO_ID",
+        "type": "NUMBER",
+        "required": false
+      },
+      {
+        "bind": "FECHA_DESDE",
+        "item": "P42_FECHA_DESDE",
+        "type": "DATE",
+        "required": false,
+        "format_mask": "DD/MM/YYYY"
+      }
+    ]
+  },
+  "fields": [],
+  "columns": [
+    {
+      "name": "VDNI",
+      "heading": "DNI",
+      "alignment": "CENTER",
+      "format_mask": null,
+      "width": {
+        "mode": "FIXED_PERCENT",
+        "value": 12.0
+      }
+    },
+    {
+      "name": "VNOM",
+      "heading": "Nombre completo",
+      "alignment": "START",
+      "format_mask": null,
+      "width": {
+        "mode": "WEIGHT",
+        "value": 2.0
+      }
+    },
+    {
+      "name": "VDIREC_ACTUAL",
+      "heading": "Dirección actual",
+      "alignment": "START",
+      "format_mask": null,
+      "width": {
+        "mode": "AUTO"
+      }
+    },
+    {
+      "name": "DEPARTAMENTO",
+      "heading": "Departamento",
+      "alignment": "START",
+      "format_mask": null,
+      "width": {
+        "mode": "WEIGHT",
+        "value": 1.0
+      }
+    },
+    {
+      "name": "DISTRITO",
+      "heading": "Distrito",
+      "alignment": "START",
+      "format_mask": null,
+      "width": {
+        "mode": "WEIGHT",
+        "value": 1.0
+      }
+    },
+    {
+      "name": "VNRO_TLF1",
+      "heading": "Teléfono",
+      "alignment": "CENTER",
+      "format_mask": null,
+      "width": {
+        "mode": "FIXED_PERCENT",
+        "value": 12.0
+      }
+    }
+  ],
+  "excluded_columns": [],
+  "styles": {
+    "title": {
+      "font_family": "HELVETICA",
+      "font_size": 15.0,
+      "font_weight": "BOLD",
+      "font_color": "#2F343A",
+      "alignment": "CENTER"
+    },
+    "table_header": {
+      "font_family": "HELVETICA",
+      "font_size": 9.0,
+      "font_weight": "BOLD",
+      "font_color": "#FFFFFF",
+      "alignment": "CENTER",
+      "background_color": "#4A4F55"
+    },
+    "table_body": {
+      "font_family": "HELVETICA",
+      "font_size": 8.0,
+      "font_weight": "NORMAL",
+      "font_color": "#25282B",
+      "background_color": "#FFFFFF"
+    },
+    "border": {
+      "width": 0.5,
+      "color": "#BFC3C7"
+    },
+    "footer": {
+      "font_family": "HELVETICA",
+      "font_size": 8.0,
+      "font_weight": "NORMAL",
+      "font_color": "#666666",
+      "alignment": "CENTER"
+    }
+  }
+}

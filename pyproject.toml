@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apex-word-report-compiler"
+version = "1.0.0"
+description = "Compilador local de plantillas Word restringidas para APEX_DATA_EXPORT"
+requires-python = ">=3.12"
+dependencies = [
+    "python-docx==1.2.0",
+]
+
+[project.scripts]
+apex-report-compiler = "corporate_report_compiler.cli:main"
+apex-report-compiler-gui = "corporate_report_compiler.gui:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

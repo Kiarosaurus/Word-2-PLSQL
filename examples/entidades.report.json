@@ -1,0 +1,101 @@
+{
+  "schema": "corporate-report-project/1.0",
+  "report_id": "ENTIDADES",
+  "template": "entidades.docx",
+  "query_file": "entidades.sql",
+  "title": "Relación de entidades",
+  "file_name": "reporte_entidades",
+  "orientation": "LANDSCAPE",
+  "format_item": "P0_REPORT_FORMAT",
+  "orientation_item": "P0_REPORT_ORIENTATION",
+  "max_rows": 2000,
+  "bindings": [
+    {
+      "bind": "DNI",
+      "item": "P42_DNI",
+      "type": "VARCHAR2",
+      "required": false
+    },
+    {
+      "bind": "DEPARTAMENTO_ID",
+      "item": "P42_DEPARTAMENTO_ID",
+      "type": "NUMBER",
+      "required": false
+    },
+    {
+      "bind": "FECHA_DESDE",
+      "item": "P42_FECHA_DESDE",
+      "type": "DATE",
+      "format_mask": "DD/MM/YYYY",
+      "required": false
+    }
+  ],
+  "fields": [],
+  "excluded_columns": [],
+  "column_widths": [
+    {
+      "column": "VDNI",
+      "mode": "FIXED_PERCENT",
+      "value": 12
+    },
+    {
+      "column": "VNOM",
+      "mode": "WEIGHT",
+      "value": 2
+    },
+    {
+      "column": "VDIREC_ACTUAL",
+      "mode": "AUTO"
+    },
+    {
+      "column": "DEPARTAMENTO",
+      "mode": "WEIGHT",
+      "value": 1
+    },
+    {
+      "column": "DISTRITO",
+      "mode": "WEIGHT",
+      "value": 1
+    },
+    {
+      "column": "VNRO_TLF1",
+      "mode": "FIXED_PERCENT",
+      "value": 12
+    }
+  ],
+  "style_overrides": {
+    "title": {
+      "font_family": "HELVETICA",
+      "font_size": 15,
+      "font_weight": "BOLD",
+      "font_color": "#2F343A",
+      "alignment": "CENTER"
+    },
+    "table_header": {
+      "font_family": "HELVETICA",
+      "font_size": 9,
+      "font_weight": "BOLD",
+      "font_color": "#FFFFFF",
+      "background_color": "#4A4F55",
+      "alignment": "CENTER"
+    },
+    "table_body": {
+      "font_family": "HELVETICA",
+      "font_size": 8,
+      "font_weight": "NORMAL",
+      "font_color": "#25282B",
+      "background_color": "#FFFFFF"
+    },
+    "border": {
+      "width": 0.5,
+      "color": "#BFC3C7"
+    },
+    "footer": {
+      "font_family": "HELVETICA",
+      "font_size": 8,
+      "font_weight": "NORMAL",
+      "font_color": "#666666",
+      "alignment": "CENTER"
+    }
+  }
+}
