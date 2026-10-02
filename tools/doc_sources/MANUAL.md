@@ -17,11 +17,11 @@ El flujo está pensado para reportes de una consulta SQL, un título, una tabla 
 ```flujo
 # Figura 1. Flujo completo de un reporte
 Informática | Diseñar la plantilla Word | sección 4: título, tabla de dos filas y pie con marcadores {{...}}
-Compilador | Nuevo proyecto desde DOCX | crea automáticamente <nombre>.report.json y <nombre>.sql (sección 3.3)
+Compilador | Nuevo proyecto desde DOCX | copia el Word a proyectos\<nombre>\ y crea automáticamente generado\<nombre>.sql y .report.json (sección 2.2)
 Informática | Completar SQL y proyecto | secciones 5 y 6; ambos archivos se pueden editar a mano en cualquier momento
 Compilador | Validar | revisa DOCX, SQL y proyecto sin escribir archivos (sección 7)
 ? Compilador | ¿Sin errores? | No: corregir según el código del diagnóstico (sección 11) y validar otra vez
-Compilador | Compilar | genera automáticamente template.json, validation.json y apex_process.sql
+Compilador | Compilar | genera automáticamente apex_process.sql junto al DOCX, y template.json y validation.json en generado\
 APEX | Instalar el package (una vez) y pegar apex_process.sql | secciones 8 y 9
 Usuario final | Pulsar Descargar | APEX_DATA_EXPORT entrega el PDF o el XLSX
 ```
@@ -43,12 +43,12 @@ La herramienta automatiza todo lo que puede deducirse de la plantilla Word. Ning
 
 | Archivo | Cómo se crea | Cuándo se actualiza | Edición directa |
 |---|---|---|---|
-| Plantilla .docx | A mano en Word, o copiando una de templates/ | Cuando el diseñador la cambia | Sí: es la fuente del diseño |
-| <nombre>.report.json | **Automáticamente** con «Nuevo proyecto desde DOCX», a partir de los marcadores del Word | Al crear el proyecto; después se ajusta a mano | Sí, en cualquier momento |
-| <nombre>.sql | **Automáticamente** (esqueleto con un filtro por columna) con «Nuevo proyecto desde DOCX» | Al crear el proyecto; después se ajusta a mano | Sí, en cualquier momento |
-| template.json | **Automáticamente** en cada compilación, leyendo el DOCX, el SQL y el proyecto | En cada compilación | Posible, pero la siguiente compilación lo reemplaza |
-| validation.json | **Automáticamente** en cada compilación | En cada compilación | No tiene sentido editarlo |
-| apex_process.sql | **Automáticamente** en cada compilación | En cada compilación | Posible antes de pegarlo en APEX, pero la siguiente compilación lo reemplaza |
+| <nombre>.docx | A mano en Word; «Nuevo proyecto desde DOCX» lo copia a proyectos\<nombre>\ | Cuando el diseñador la cambia o se vuelve a cargar | Sí: es la fuente del diseño |
+| generado\<nombre>.report.json | **Automáticamente** con «Nuevo proyecto desde DOCX», a partir de los marcadores del Word | Al cargar el DOCX; después se ajusta a mano | Sí, en cualquier momento |
+| generado\<nombre>.sql | **Automáticamente** (esqueleto con un filtro por columna) con «Nuevo proyecto desde DOCX» | Al cargar el DOCX; después se ajusta a mano | Sí, en cualquier momento |
+| generado\template.json | **Automáticamente** en cada compilación, leyendo el DOCX, el SQL y el proyecto | En cada compilación | Posible, pero la siguiente compilación lo reemplaza |
+| generado\validation.json | **Automáticamente** en cada compilación | En cada compilación | No tiene sentido editarlo |
+| apex_process.sql | **Automáticamente** en cada compilación, junto al DOCX | En cada compilación | Posible antes de pegarlo en APEX, pero la siguiente compilación lo reemplaza |
 
 Al cambiar la plantilla Word **no hace falta rehacer ningún JSON a mano**: basta con volver a compilar y `template.json` y `apex_process.sql` se regeneran solos con las nuevas etiquetas, estilos, orden de columnas, título, pie y orientación. Solo se toca el proyecto o el SQL cuando el cambio de Word introduce algo que no puede deducirse del documento:
 
@@ -59,11 +59,49 @@ Al cambiar la plantilla Word **no hace falta rehacer ningún JSON a mano**: bast
 | Columna eliminada | Quitar su alias de column_widths (si no, PROJECT-052) y de excluded_columns (si no, advertencia PROJECT-042) |
 | Nuevo {{FIELD:NOMBRE}} | Añadir su entrada en fields (sección 6.2) |
 | {{FIELD:NOMBRE}} eliminado | Quitar su entrada de fields |
-| Plantilla rehecha por completo | Renombrar o borrar el .report.json y el .sql anteriores y volver a usar «Nuevo proyecto desde DOCX» |
+| Plantilla rehecha por completo | Volver a usar «Nuevo proyecto desde DOCX» con el mismo nombre: regenera el proyecto y guarda los anteriores como .bak (sección 2.2) |
 
 El validador local indica qué falta en el proyecto (por ejemplo `TOKEN-020` para un `{{FIELD:...}}` sin entrada en `fields`, o `PROJECT-052` para un ancho de una columna que ya no está en el Word). El compilador no ejecuta el SQL: un alias de `{{COLUMN:...}}` ausente en el `SELECT` lo detecta el package al descargar, con un error controlado. Por eso conviene probar el SQL en SQL Workshop después de añadir columnas.
 
 Si se desea un estilo distinto del que tiene el Word sin abrir Word, puede escribirse directamente en `style_overrides` del `.report.json` (sección 6); ese valor prevalece sobre el extraído automáticamente del DOCX.
+
+### 2.2 Carpeta de proyectos
+
+Cada reporte vive en `proyectos\<nombre>\`, donde `<nombre>` es el nombre del DOCX. En la carpeta del reporte queda solo lo que se mira o se sube; el material de trabajo va en la subcarpeta `generado\`, que existe siempre:
+
+```
+proyectos\
+  ventas\
+    ventas.docx               <- plantilla (se edita en Word)
+    apex_process.sql          <- lo único que se pega en APEX
+    generado\                 <- no se sube a APEX
+      ventas.sql              <- consulta fuente; su texto se incrusta en apex_process.sql
+      ventas.report.json      <- binds, campos, anchos, estilos
+      template.json           <- definición compilada
+      validation.json         <- diagnósticos
+```
+
+El `.sql` no se sube a APEX como archivo: al compilar, la consulta se copia dentro de `apex_process.sql`. El package común `sql\pkg_corporate_reports.sql` se instala aparte, una sola vez por esquema (sección 8).
+
+Reglas de la carpeta:
+
+- Si el DOCX elegido está en otra carpeta (Descargas, correo, red), se **copia** a `proyectos\<nombre>\<nombre>.docx`. Si ya está allí, se usa en su sitio.
+- Si se vuelve a cargar un DOCX con el **mismo nombre**, la herramienta pide confirmación y reemplaza solo sus archivos conocidos: el DOCX, `apex_process.sql` y los cuatro de `generado\`. De cada uno guarda antes una copia `generado\<archivo>.bak` (la siguiente carga sobrescribe esa copia).
+- Cualquier **otro archivo** que se guarde en la carpeta del reporte o en `generado\` (notas, capturas, documentación) no se toca nunca.
+- La compilación reemplaza únicamente `apex_process.sql`, `generado\template.json` y `generado\validation.json`.
+- Las rutas del `.report.json` no pueden salir de `proyectos\<nombre>\` (`PROJECT-005`).
+
+El proyecto de ejemplo `proyectos\entidades\` sigue la misma organización y es el único que además incluye su documentación (`README.docx`).
+
+```flujo
+# Figura 2. Cargar un DOCX en la carpeta de proyectos
+Usuario | Elegir el .docx | desde cualquier carpeta
+Compilador | Validar la plantilla | si no es válida, se informa y no se toca ningún archivo
+? Compilador | ¿proyectos\<nombre>\ está vacío o no existe? | No: pedir confirmación; si se acepta, mover cada archivo conocido a generado\<archivo>.bak
+Compilador | Copiar el Word a proyectos\<nombre>\<nombre>.docx | se omite si el DOCX ya estaba allí
+Compilador | Escribir generado\<nombre>.sql y generado\<nombre>.report.json | esqueleto: un alias y un filtro opcional por columna; un campo por {{FIELD:…}}
+Usuario | Ajustar SQL y proyecto, validar y compilar | apex_process.sql aparece junto al DOCX
+```
 
 ## 3. Requisitos locales
 
@@ -113,24 +151,13 @@ apex-report-compiler-gui
 
 | Botón | Resultado |
 |---|---|
-| Nuevo proyecto desde DOCX… | Lee los marcadores del Word y crea **automáticamente** junto a él <nombre>.report.json y <nombre>.sql con un filtro opcional por columna. Cada filtro se enlaza a un Page Item PXX_<ALIAS> (o P42_<ALIAS> si indica el número de página) y cada {{FIELD:NOMBRE}} a PXX_<NOMBRE>. Nunca sobrescribe archivos existentes. |
+| Nuevo proyecto desde DOCX… | Copia el Word a proyectos\<nombre>\ y crea **automáticamente** en generado\ el <nombre>.report.json y el <nombre>.sql, con un filtro opcional por columna. Cada filtro se enlaza a un Page Item PXX_<ALIAS> (o P42_<ALIAS> si indica el número de página) y cada {{FIELD:NOMBRE}} a PXX_<NOMBRE>. Si la carpeta ya existe, pide confirmación y guarda copias .bak (sección 2.2). |
 | Validar | Revisa DOCX, SQL y proyecto sin escribir archivos. |
-| Compilar | Genera **automáticamente** los tres artefactos en build\<reporte> junto al proyecto y muestra qué subir a APEX y dónde: el package, la tabla de Page Items con su tipo sugerido, el botón, el proceso y la ruta exacta de apex_process.sql. |
+| Compilar | Genera **automáticamente** apex_process.sql en proyectos\<nombre>\ y template.json y validation.json en generado\, y muestra qué subir a APEX y dónde: el package, la tabla de Page Items con su tipo sugerido, el botón, el proceso y la ruta exacta de apex_process.sql. |
 | Copiar código APEX | Copia apex_process.sql al portapapeles para pegarlo en el proceso. |
-| Abrir carpeta de salida | Abre la carpeta con los artefactos generados. |
+| Abrir carpeta de salida | Abre proyectos\<nombre>\, donde está apex_process.sql. |
 
-```flujo
-# Figura 2. «Nuevo proyecto desde DOCX…»
-Usuario | Elegir el archivo .docx | por ejemplo examples\entidades.docx
-Usuario | Indicar el número de página APEX | 42 genera P42_…; dejar XX genera PXX_… para reemplazar después
-Compilador | Leer los marcadores del Word | cada {{COLUMN:…}} y cada {{FIELD:…}}
-? Compilador | ¿<nombre>.report.json y <nombre>.sql aún no existen? | No: se detiene con GUIDE-001 y no sobrescribe nada
-Compilador | Escribir <nombre>.sql | SELECT con un alias por columna y un filtro opcional :F_<ALIAS> por columna
-Compilador | Escribir <nombre>.report.json | bindings, fields, título, file_name y orientation AUTO
-Usuario | Ajustar a mano | tabla real, filtros que sobran, anchos y título; luego Validar y Compilar
-```
-
-Ejemplo de lo que genera automáticamente para `entidades.docx` con página 42 (extracto comentado; los comentarios `--` son válidos en SQL):
+Ejemplo de lo que genera automáticamente en `generado\entidades.sql` para `entidades.docx` con página 42 (extracto comentado; los comentarios `--` son válidos en SQL):
 
 ```
 -- entidades.sql generado: reemplace tabla_origen y t."ALIAS" por los objetos reales
@@ -178,7 +205,7 @@ La fila 2 es un prototipo técnico: no aparece como una fila del PDF. Su orden e
 
 Los identificadores se normalizan a mayúsculas y deben comenzar con una letra. No coloque SQL, fórmulas, condiciones, bucles ni código en un marcador.
 
-Las plantillas de referencia de `templates/` y `examples/entidades.docx` usan los cinco tipos a la vez. Así se ven en Word (los comentarios a la derecha no forman parte del documento):
+Las plantillas de referencia de `templates/` y `proyectos/entidades/entidades.docx` usan los cinco tipos a la vez. Así se ven en Word (los comentarios a la derecha no forman parte del documento):
 
 ```
 {{REPORT_TITLE}}                  <- título; un salto de línea manual (Mayús+Intro)...
@@ -273,15 +300,15 @@ La plantilla usa `{{COLUMN:DEPARTAMENTO}}`; el ID puede seguir usándose como bi
 
 ## 6. El archivo de proyecto
 
-El archivo `nombre.report.json` relaciona el DOCX y el SQL. Se crea **automáticamente** con «Nuevo proyecto desde DOCX» a partir de los marcadores de la plantilla y luego puede editarse directamente con cualquier editor de texto. Las rutas son relativas y deben permanecer dentro de la carpeta del proyecto.
+El archivo `nombre.report.json` relaciona el DOCX y el SQL. Se crea **automáticamente** con «Nuevo proyecto desde DOCX» a partir de los marcadores de la plantilla y luego puede editarse directamente con cualquier editor de texto. Vive en `proyectos\<nombre>\generado\`; sus rutas son relativas a ese archivo y deben permanecer dentro de `proyectos\<nombre>\`.
 
-Versión comentada del ejemplo `examples/entidades.report.json`. JSON **no admite comentarios**: las líneas `//` son solo explicativas y deben eliminarse si copia este texto; el archivo real, sin comentarios, está en `examples/`.
+Versión comentada del ejemplo `proyectos/entidades/generado/entidades.report.json`. JSON **no admite comentarios**: las líneas `//` son solo explicativas y deben eliminarse si copia este texto; el archivo real, sin comentarios, está en esa carpeta.
 
 ```
 {
   "schema": "corporate-report-project/1.0",   // fijo
   "report_id": "ENTIDADES",                   // identificador; nombra el botón DOWNLOAD_ENTIDADES
-  "template": "entidades.docx",               // plantilla Word, relativa a este archivo
+  "template": "../entidades.docx",            // plantilla Word, relativa a este archivo
   "query_file": "entidades.sql",              // consulta, relativa a este archivo
   "title": "Relación de entidades",           // reemplaza {{REPORT_TITLE}}
   "file_name": "reporte_entidades",           // nombre del archivo descargado (sin extensión)
@@ -406,34 +433,46 @@ Compilador | Leer DOCX, SQL y .report.json | el DOCX se inspecciona antes de abr
 Compilador | Validar plantilla, SQL y proyecto | marcadores, aliases, binds, campos, estilos y límites
 ? Compilador | ¿Validación sin errores? | No: se informan con su código, no se escribe nada y la última salida válida queda intacta
 Compilador | Generar en una carpeta temporal | template.json, validation.json y apex_process.sql
-Compilador | Publicar en la carpeta de salida | reemplaza los tres archivos de una sola vez
+Compilador | Publicar | apex_process.sql en proyectos\<nombre>\; template.json y validation.json en generado\; solo esos tres archivos se reemplazan
 ```
 
-Valide primero, sin escribir artefactos:
+La interfaz gráfica hace todo esto con los botones. Desde la línea de comandos:
+
+```
+# Cargar el Word en proyectos\ventas\ (desde cualquier carpeta)
+apex-report-compiler new --docx C:\Descargas\ventas.docx --page 42
+
+# Volver a cargarlo con el mismo nombre: --replace guarda copias .bak en generado\
+apex-report-compiler new --docx C:\Descargas\ventas.docx --page 42 --replace
+```
+
+Valide, sin escribir artefactos:
 
 ```
 # Solo revisa; útil después de cada cambio en Word, SQL o proyecto
 apex-report-compiler validate `
-  --project .\mi_reporte\mi_reporte.report.json
+  --project .\proyectos\ventas\generado\ventas.report.json
 ```
 
 Compile cuando la validación sea correcta:
 
 ```
-# Valida y, si no hay errores, escribe los tres artefactos en build\mi_reporte
+# Sin --output: apex_process.sql va a proyectos\ventas\ y el resto a generado\
 apex-report-compiler compile `
-  --project .\mi_reporte\mi_reporte.report.json `
-  --output .\build\mi_reporte
+  --project .\proyectos\ventas\generado\ventas.report.json
 ```
 
 Otras opciones:
 
 ```
 # Acepta aproximaciones documentadas (p. ej. una fuente no reconocida) como advertencias
-apex-report-compiler validate --compatible --project .\mi_reporte\mi_reporte.report.json
+apex-report-compiler validate --compatible --project .\proyectos\ventas\generado\ventas.report.json
 
 # Diagnósticos en JSON, para scripts o integración continua
-apex-report-compiler validate --json --project .\mi_reporte\mi_reporte.report.json
+apex-report-compiler validate --json --project .\proyectos\ventas\generado\ventas.report.json
+
+# Enviar los tres archivos a otra carpeta (por ejemplo, para comparar versiones)
+apex-report-compiler compile --project .\proyectos\ventas\generado\ventas.report.json --output .\build\ventas
 ```
 
 El modo predeterminado es estricto. `--compatible` admite únicamente aproximaciones documentadas y las informa como advertencias.
@@ -442,11 +481,11 @@ La compilación genera automáticamente:
 
 | Archivo | Uso |
 |---|---|
-| template.json | Interpretación canónica y auditable de la plantilla |
-| validation.json | Diagnósticos reproducibles |
-| apex_process.sql | Proceso PL/SQL listo para revisar y copiar |
+| generado\template.json | Interpretación canónica y auditable de la plantilla |
+| generado\validation.json | Diagnósticos reproducibles |
+| apex_process.sql | Proceso PL/SQL listo para revisar y copiar en APEX (junto al DOCX) |
 
-Estos tres archivos se regeneran en cada compilación a partir del DOCX, el SQL y el proyecto. Si una compilación falla, se conserva intacta la última salida válida. La carpeta de salida no puede ser la misma que contiene el `.sql` o el `.report.json` si eso sobrescribiría un archivo fuente; use, por ejemplo, `.\build\mi_reporte`.
+Estos tres archivos se regeneran en cada compilación a partir del DOCX, el SQL y el proyecto; los demás archivos de la carpeta no se tocan. Si una compilación falla, se conserva intacta la última salida válida. Con `--output`, la carpeta indicada no puede sobrescribir el `.sql` ni el `.report.json` (`IO-003`).
 
 ## 8. Instalar el paquete común
 
@@ -583,17 +622,19 @@ Diagnóstico | Revisar APEX Debug | el mensaje del package indica el bind, colum
 | SQL-013 | El SQL usa &ITEM. | Reemplazar por :BIND y su mapping |
 | PROJECT-017 | Bind con nombre reservado de APEX | Renombrar el bind o usar {{APP_USER}} |
 | IO-003 | La salida sobrescribiría el SQL o el proyecto | Elegir otra carpeta de salida |
-| GUIDE-001 | «Nuevo proyecto desde DOCX» encontró archivos existentes | Editar los existentes o renombrarlos para generar otros |
+| GUIDE-002 | Se volvió a cargar un DOCX con el mismo nombre sin confirmar | Confirmar en la ventana o usar --replace; se guardan copias .bak |
+| PROJECT-005 | Una ruta del .report.json sale de proyectos\<nombre>\ | Mantener la plantilla en ../<nombre>.docx y el SQL en generado\ |
 | «SyntaxError … JSON» al descargar | Reload on Submit en Only for Success | Cambiarlo a Always en la página |
 | TOKEN-005 | {{FIELD:APP_USER}} u otro nombre reservado | Escribir {{APP_USER}} sin FIELD: |
 
 ## 12. Mantenimiento recomendado
 
-- Mantenga juntos el DOCX, `.sql`, `.report.json` y una salida de referencia.
+- Mantenga cada reporte en su carpeta `proyectos\<nombre>\`; guarde allí cualquier material adicional, que nunca se borra.
+- Antes de volver a cargar un DOCX con el mismo nombre, recuerde que el `.sql` y el `.report.json` se regeneran: recupere sus cambios desde los `.bak`.
 - Versione cada cambio y revise SQL/configuración como código.
 - Recompile después de cambiar Word, SQL, aliases, campos, exclusiones o anchos: los artefactos se regeneran automáticamente.
 - Si edita `apex_process.sql` directamente, refleje el mismo cambio en el proyecto fuente; de lo contrario la siguiente compilación lo deshará.
 - Instale una sola copia central del paquete; no genere un package distinto por reporte.
 - Revise rendimiento y permisos del SQL antes de promover.
 
-El directorio `examples` contiene un proyecto completo que sirve como punto de partida; `templates` contiene dos plantillas de referencia, vertical y horizontal, que usan los cinco tipos de marcador.
+La carpeta `proyectos\entidades` contiene un proyecto completo, con su documentación, que sirve como punto de partida; `templates` contiene dos plantillas de referencia, vertical y horizontal, que usan los cinco tipos de marcador.

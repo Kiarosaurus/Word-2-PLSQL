@@ -14,7 +14,7 @@ QA | Inspección estructural | un párrafo de título, una tabla de dos filas, u
 QA | Compilar cada plantilla con un proyecto válido | template.json se genera automáticamente
 QA | Exportar a PDF e inspeccionar | build\qa, al 100 %
 ? QA | ¿Todos los puntos conformes? | No: corregir el generador y repetir el ciclo completo
-QA | Publicar en templates\ y copiar a examples\entidades.docx | regenerar examples\build_expected
+QA | Publicar en templates\ y copiar a proyectos\entidades\entidades.docx | recompilar proyectos\entidades
 ```
 
 1. Desde la raíz del proyecto, con el entorno `.venv` preparado:
@@ -33,7 +33,7 @@ fc.exe /b build\qa\templates\entidades_landscape.docx templates\entidades_landsc
 ```
 
 4. Confirmar que los únicos archivos generados son: `entidades_portrait.docx` y `entidades_landscape.docx`.
-5. `examples\entidades.docx` debe ser idéntico a `templates\entidades_landscape.docx`.
+5. `proyectos\entidades\entidades.docx` debe ser idéntico a `templates\entidades_landscape.docx`.
 6. Solo si se cambió el generador a propósito, regenerar en `templates` (directorio predeterminado del script) y repetir esta lista completa.
 
 ## Inspección estructural

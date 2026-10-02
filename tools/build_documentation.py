@@ -489,7 +489,7 @@ DOCUMENTS = (
      "Guía de inicio · Versión 1.0"),
     ("SQL_README.md", "sql/README.docx", "Instalación de PKG_CORPORATE_REPORTS",
      "Package común para Oracle APEX 24.2"),
-    ("EXAMPLES_README.md", "examples/README.docx", "Ejemplo ejecutable ENTIDADES",
+    ("EXAMPLES_README.md", "proyectos/entidades/README.docx", "Ejemplo ejecutable ENTIDADES",
      "Proyecto completo de referencia"),
 )
 

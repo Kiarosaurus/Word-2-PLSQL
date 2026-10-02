@@ -340,7 +340,17 @@ El formato canónico es UTF-8 y se serializa de manera determinista: claves orde
 
 `template.json` se genera **automáticamente** en cada compilación; nunca es una entrada. Cuando la plantilla cambia, basta recompilar para que la definición refleje las nuevas etiquetas, columnas, textos de encabezado y pie, estilos y orientación. El archivo puede abrirse y editarse directamente para inspección o pruebas, pero la siguiente compilación lo reemplaza; los ajustes permanentes se expresan en el manifiesto `.report.json` (por ejemplo, `style_overrides` prevalece sobre los estilos extraídos del DOCX).
 
-El manifiesto `.report.json` también puede crearse automáticamente desde el DOCX («Nuevo proyecto desde DOCX»): un binding opcional por cada `{{COLUMN:...}}` y un campo `ITEM` por cada `{{FIELD:...}}`. Esa generación nunca sobrescribe un manifiesto existente; a partir de entonces el manifiesto se mantiene editándolo directamente.
+El manifiesto `.report.json` también puede crearse automáticamente desde el DOCX («Nuevo proyecto desde DOCX»): un binding opcional por cada `{{COLUMN:...}}` y un campo `ITEM` por cada `{{FIELD:...}}`. El DOCX se copia a `proyectos/<nombre>/` y el manifiesto y la consulta se escriben en `proyectos/<nombre>/generado/`. Volver a cargar un DOCX con el mismo nombre exige confirmación y regenera ambos, conservando los anteriores como `generado/<archivo>.bak`; los demás archivos de la carpeta no se modifican. Entre cargas, el manifiesto se mantiene editándolo directamente.
+
+Ubicación de los artefactos de cada reporte:
+
+| Archivo | Ubicación | Origen |
+|---|---|---|
+| <nombre>.docx | proyectos/<nombre>/ | copia del DOCX cargado |
+| apex_process.sql | proyectos/<nombre>/ | compilación (único archivo que se pega en APEX) |
+| <nombre>.sql | proyectos/<nombre>/generado/ | esqueleto automático; su texto se incrusta en apex_process.sql |
+| <nombre>.report.json | proyectos/<nombre>/generado/ | esqueleto automático; editable |
+| template.json, validation.json | proyectos/<nombre>/generado/ | compilación |
 
 ### 7.1 Propiedades del proyecto `.report.json`
 
@@ -348,7 +358,7 @@ El manifiesto `.report.json` también puede crearse automáticamente desde el DO
 |---|---|---|
 | schema | sí | exactamente corporate-report-project/1.0 |
 | report_id | sí | identificador de 1 a 30 caracteres |
-| template, query_file | sí | rutas relativas dentro de la carpeta del proyecto |
+| template, query_file | sí | rutas relativas al .report.json que no salen de la carpeta del proyecto: proyectos/<nombre>/ si el manifiesto está en generado/, o la carpeta del propio manifiesto en otro caso |
 | title | sí | texto JSON, máximo 255 bytes UTF-8 |
 | file_name | no | letras, números, _ o -; máximo 180; por defecto report_id en minúsculas |
 | max_rows | no | entero de 1 a 100 000; por defecto 1000 |

@@ -133,23 +133,31 @@ def _verify_staged_artifacts(
 ARTIFACT_NAMES = ("template.json", "validation.json", "apex_process.sql")
 
 
-def _commit_artifacts(staging_files: tuple[Path, ...], output: Path) -> tuple[Path, ...]:
+def _commit_artifacts(
+    staging_files: tuple[Path, ...],
+    output: Path,
+    destinations: dict[str, Path] | None = None,
+) -> tuple[Path, ...]:
     """Publica los archivos con rollback si falla una sustitución.
 
-    El directorio destino puede contener otros archivos: solo se sustituyen los
+    ``destinations`` permite enviar un artefacto a otra carpeta (por ejemplo,
+    ``apex_process.sql`` a la carpeta del proyecto); el resto va a ``output``.
+    Las carpetas destino pueden contener otros archivos: solo se sustituyen los
     tres nombres contractuales. Los archivos anteriores se conservan en un
     respaldo temporal hasta completar toda la operación. Si una restauración
     falla, el respaldo no se elimina y su ruta se incluye en el error.
     """
 
-    output.mkdir(parents=True, exist_ok=True)
+    targets = {path.name: (destinations or {}).get(path.name, output) / path.name for path in staging_files}
+    for target in targets.values():
+        target.parent.mkdir(parents=True, exist_ok=True)
     backup = Path(tempfile.mkdtemp(prefix=".report-compiler-backup-", dir=output.parent))
     installed: list[Path] = []
     saved: list[tuple[Path, Path]] = []
     keep_backup = False
     try:
         for source in staging_files:
-            destination = output / source.name
+            destination = targets[source.name]
             if destination.exists():
                 backup_path = backup / source.name
                 os.replace(destination, backup_path)
@@ -174,7 +182,7 @@ def _commit_artifacts(staging_files: tuple[Path, ...], output: Path) -> tuple[Pa
     finally:
         if not keep_backup:
             shutil.rmtree(backup, ignore_errors=True)
-    return tuple(output / path.name for path in staging_files)
+    return tuple(targets[path.name] for path in staging_files)
 
 
 def compile_project(
@@ -182,12 +190,17 @@ def compile_project(
     output_directory: str | Path,
     *,
     strict: bool = True,
+    process_directory: str | Path | None = None,
 ) -> CompilationResult:
     """Valida y compila atómicamente un proyecto.
 
     Una validación fallida no crea el directorio de salida ni altera una
     compilación anterior. Los errores de E/S se convierten en diagnósticos
     controlados; la CLI decide el código de salida correspondiente.
+
+    Con ``process_directory``, ``apex_process.sql`` (lo único que se pega en
+    APEX) se publica allí y ``template.json``/``validation.json`` en
+    ``output_directory``.
     """
 
     result = validate_project(project_path, strict=strict)
@@ -197,6 +210,9 @@ def compile_project(
     assert result.project is not None
 
     output = Path(output_directory).expanduser().resolve()
+    destinations: dict[str, Path] = {}
+    if process_directory is not None:
+        destinations["apex_process.sql"] = Path(process_directory).expanduser().resolve()
     if output.exists() and not output.is_dir():
         result.diagnostics.error(
             "IO-001",
@@ -210,7 +226,7 @@ def compile_project(
         for path in (result.project_path, result.project.template_path, result.project.query_path)
     }
     for name in ARTIFACT_NAMES:
-        destination = output / name
+        destination = destinations.get(name, output) / name
         if destination.resolve() in protected:
             result.diagnostics.error(
                 "IO-003",
@@ -241,7 +257,7 @@ def compile_project(
         staged_files = _verify_staged_artifacts(staging, result.definition, result.diagnostics)
         if result.diagnostics.has_errors:
             return replace(result, definition=None)
-        artifacts = _commit_artifacts(staged_files, output)
+        artifacts = _commit_artifacts(staged_files, output, destinations)
         return replace(result, artifacts=artifacts)
     except OSError as exc:
         result.diagnostics.error(

@@ -22,8 +22,11 @@ dist/
 .eggs/
 wheels/
 
-# Compiler output (regenerable); examples/build_expected stays tracked
-examples/compiled/
+# Backups left by re-importing a DOCX into proyectos/<nombre>/
+proyectos/**/*.bak
+
+# Legacy local compiler output
+examples/
 
 # Windows shortcuts (absolute, machine-specific paths)
 *.lnk

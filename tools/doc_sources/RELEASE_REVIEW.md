@@ -38,7 +38,7 @@ Desde la raíz del proyecto, en Windows 11, con Python 3.13.2 y python-docx 1.2.
 | compileall | sin errores |
 | --version | apex-report-compiler 1.0.0 |
 | Validación del ejemplo | 0 errores, 0 advertencias, sin escribir archivos |
-| Compilación del ejemplo, dos veces | los tres artefactos son idénticos byte a byte entre sí y con examples/build_expected |
+| Compilación del ejemplo, dos veces | los tres artefactos son idénticos byte a byte entre sí y con los versionados en proyectos/entidades |
 | Generador de plantillas | reproduce templates/*.docx byte a byte |
 | ZIP de entrega | pruebas y compilación del ejemplo correctas desde una extracción limpia; SHA-256 en el archivo .sha256 adjunto |
 
@@ -47,6 +47,7 @@ Pruebas nuevas:
 - `tests/test_audit_regressions.py`: una o más pruebas por hallazgo. Se verificó que fallan sin las correcciones y pasan con ellas.
 - `tests/test_package_semantics.py`: contrato estático del package sobre el código efectivo, sin comentarios, con firmas ordenadas exactas. Se valida contra siete mutaciones semánticas: auto-bind comentado, cierre de contexto eliminado, valor por defecto ampliado, parámetros intercambiados, cierre ausente en `e_stop_apex_engine`, SQL dinámico y `LTRIM` de un solo argumento.
 - `tests/test_apex_guide.py`: guía de publicación en APEX, esqueleto de proyecto desde DOCX, salida de la GUI y acceso directo portable.
+- `tests/test_workspace.py`: carpeta `proyectos/<nombre>/`, copia del DOCX, reemplazo con `.bak` sin borrar otros archivos, salida dividida y confinamiento de rutas.
 - `tests/test_documentation.py`: los entregables Word contienen las instrucciones críticas y no mencionan nombres ajenos a esta versión.
 
 ## 3. Hallazgos corregidos
@@ -112,4 +113,4 @@ Un fallo en los puntos 1 a 3 cambia el veredicto operativo a **NO-GO**.
 
 ## 8. Condiciones de empaquetado
 
-El ZIP incluye `src`, `tests`, `sql`, `templates`, `examples`, `deliverables`, `docs`, `tools`, la documentación Word, `README.docx`, `pyproject.toml`, `requirements.txt`, los lanzadores y el acceso directo. Excluye `build/`, `qa/`, `.venv/`, `__pycache__`, `.pyc`, `.egg-info` y las salidas compiladas locales.
+El ZIP incluye `src`, `tests`, `sql`, `templates`, `proyectos`, `deliverables`, `docs`, `tools`, la documentación Word, `README.docx`, `pyproject.toml`, `requirements.txt`, los lanzadores y el acceso directo. Excluye `build/`, `qa/`, `.venv/`, `__pycache__`, `.pyc`, `.egg-info` y las salidas compiladas locales.

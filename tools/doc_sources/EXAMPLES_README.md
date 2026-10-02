@@ -1,15 +1,24 @@
 # Ejemplo ejecutable ENTIDADES
 
-Este directorio contiene un proyecto completo que el compilador puede validar y compilar sin mover archivos. Los nombres de tablas son ilustrativos; solo la ejecución posterior en APEX exige sustituirlos por objetos que existan en el esquema de la aplicación.
+La carpeta `proyectos/entidades/` contiene un proyecto completo que el compilador puede validar y compilar sin mover archivos. Sigue la misma organización que tendrá cualquier reporte nuevo; es el único proyecto que además incluye esta documentación (`README.docx`). Los nombres de tablas son ilustrativos; solo la ejecución posterior en APEX exige sustituirlos por objetos que existan en el esquema de la aplicación.
 
 ## Archivos
 
-- `entidades.docx`: plantilla Word restringida, A4 horizontal, con seis columnas y los cinco tipos de marcador.
-- `entidades.sql`: consulta de solo lectura con exactamente los seis aliases de la plantilla.
-- `entidades.report.json`: configuración, binds, campos, anchos y estilos admitidos.
-- `build_expected/`: salida de referencia generada automáticamente por el compilador.
+```
+proyectos/entidades/
+  entidades.docx             <- plantilla Word (A4 horizontal, seis columnas, cinco tipos de marcador)
+  apex_process.sql           <- lo único que se pega en APEX (generado al compilar)
+  README.docx                <- esta documentación (solo en el proyecto de ejemplo)
+  generado/                  <- material de trabajo que no se sube a APEX
+    entidades.sql            <- consulta fuente; su texto queda incrustado en apex_process.sql
+    entidades.report.json    <- binds, campos, anchos y estilos
+    template.json            <- definición compilada (automática)
+    validation.json          <- diagnósticos de la compilación (automático)
+```
 
-El DOCX se utiliza solamente durante la compilación local. En APEX se instala el paquete una vez y se pega el bloque `apex_process.sql` que genere al compilar. Las tablas del SQL (`entidad`, `mae_departamento`, `mae_distrito`) son ilustrativas: el proceso solo funcionará en APEX después de adaptar el SQL a objetos reales y recompilar.
+`entidades.sql` no se sube a APEX como archivo: al compilar, su consulta se copia dentro de `apex_process.sql` (`l_sql clob := to_clob(q'~select …~')`). Por eso vive en `generado/` junto con el resto del material de trabajo.
+
+El DOCX se utiliza solamente durante la compilación local. En APEX se instala el paquete una vez y se pega el bloque `apex_process.sql`. Las tablas del SQL (`entidad`, `mae_departamento`, `mae_distrito`) son ilustrativas: el proceso solo funcionará en APEX después de adaptar el SQL a objetos reales y recompilar.
 
 ## Contrato de la plantilla
 
@@ -83,52 +92,58 @@ Desde la raíz del proyecto, con el entorno virtual activado:
 ```
 # 1. Validar: no escribe archivos
 python -m corporate_report_compiler validate `
-  --project .\examples\entidades.report.json
+  --project .\proyectos\entidades\generado\entidades.report.json
 
-# 2. Compilar en build\entidades (nunca sobre examples\build_expected)
+# 2. Compilar: sin --output, apex_process.sql va a proyectos\entidades\
+#    y template.json / validation.json a proyectos\entidades\generado\
 python -m corporate_report_compiler compile `
-  --project .\examples\entidades.report.json `
-  --output .\build\entidades
+  --project .\proyectos\entidades\generado\entidades.report.json
 ```
 
-Compare la salida con la referencia; los tres comandos deben indicar que no hay diferencias:
-
-```
-# Cada comando debe responder «no se encontraron diferencias»
-fc.exe /b .\build\entidades\template.json .\examples\build_expected\template.json
-fc.exe /b .\build\entidades\validation.json .\examples\build_expected\validation.json
-fc.exe /b .\build\entidades\apex_process.sql .\examples\build_expected\apex_process.sql
-```
-
-No compile sobre `examples\build_expected`: es la referencia que detecta regresiones.
+Los archivos compilados que acompañan al ejemplo son también la referencia que detecta regresiones: tras compilar, `git status` no debe mostrar cambios en `proyectos\entidades`. La prueba automática `tests\test_workspace.py` compila una copia y la compara byte a byte.
 
 En Linux o macOS:
 
 ```
 PYTHONPATH=src python -m corporate_report_compiler compile \
-  --project examples/entidades.report.json \
-  --output build/entidades
-cmp build/entidades/apex_process.sql examples/build_expected/apex_process.sql
+  --project proyectos/entidades/generado/entidades.report.json
+git status --short proyectos/entidades     # sin salida = idéntico a la referencia
 ```
 
-Una validación correcta no escribe archivos. La compilación genera automáticamente:
+Una validación correcta no escribe archivos. La compilación genera automáticamente, reemplazando solo estos tres archivos:
 
-- `template.json`: contrato normalizado y estilos extraídos del DOCX;
-- `validation.json`: diagnóstico reproducible de la compilación;
-- `apex_process.sql`: llamada mínima a `PKG_CORPORATE_REPORTS.DOWNLOAD_QUERY`.
+- `generado/template.json`: contrato normalizado y estilos extraídos del DOCX;
+- `generado/validation.json`: diagnóstico reproducible de la compilación;
+- `apex_process.sql`: llamada mínima a `PKG_CORPORATE_REPORTS.DOWNLOAD_QUERY`, junto al DOCX.
+
+## Cargar de nuevo un DOCX con el mismo nombre
+
+«Nuevo proyecto desde DOCX» (o `apex-report-compiler new --docx ...`) copia el Word a `proyectos/<nombre>/`. Si esa carpeta ya existe, pide confirmación y reemplaza únicamente sus archivos conocidos: el DOCX, `apex_process.sql` y los cuatro de `generado/`. Antes de reemplazar cada uno guarda una copia `generado/<archivo>.bak`; la siguiente carga sobrescribe esa copia. Cualquier otro archivo que haya puesto en la carpeta (documentación, notas, capturas) no se toca.
+
+```
+# Primera carga desde cualquier carpeta
+apex-report-compiler new --docx C:\Descargas\ventas.docx --page 42
+
+# Nueva versión del Word con el mismo nombre: sin --replace se detiene (GUIDE-002)
+apex-report-compiler new --docx C:\Descargas\ventas.docx --page 42 --replace
+#   proyectos\ventas\generado\ventas.sql.bak         <- su SQL editado anterior
+#   proyectos\ventas\generado\ventas.report.json.bak <- su proyecto anterior
+```
+
+Después de reemplazar, recupere desde los `.bak` lo que había editado a mano (tablas reales, filtros, anchos) y vuelva a compilar.
 
 ## Adaptación a una página real
 
 ```flujo
 # Figura 1. De este ejemplo a un reporte real
-Informática | Copiar entidades.docx y editarlo en Word | etiquetas, estilos y columnas; mantener los marcadores {{...}}
-Compilador | Nuevo proyecto desde DOCX | crea automáticamente <nombre>.report.json y <nombre>.sql desde el Word
-Informática | Adaptar SQL y proyecto | tablas reales, aliases del DOCX, Page Items, título, anchos y max_rows
-Compilador | Validar y compilar | template.json y apex_process.sql se regeneran automáticamente
-APEX | Pegar el proceso generado y probar | Manual de uso, sección 9
+Informática | Copiar entidades.docx con otro nombre y editarlo en Word | etiquetas, estilos y columnas; mantener los marcadores {{...}}
+Compilador | Nuevo proyecto desde DOCX | copia el Word a proyectos\<nombre>\ y crea automáticamente generado\<nombre>.sql y .report.json
+Informática | Adaptar SQL y proyecto en generado\ | tablas reales, aliases del DOCX, Page Items, título, anchos y max_rows
+Compilador | Validar y compilar | apex_process.sql (junto al DOCX) y generado\template.json se regeneran automáticamente
+APEX | Pegar proyectos\<nombre>\apex_process.sql y probar | Manual de uso, sección 9
 ```
 
-Alternativa: copiar también `entidades.sql` y `entidades.report.json`, renombrarlos y editarlos directamente.
+Alternativa: copiar también `generado\entidades.sql` y `generado\entidades.report.json` a la carpeta `generado` del nuevo proyecto, renombrarlos y editarlos directamente (incluidas las claves `template` y `query_file`).
 
 1. Cambiar las tablas y joins del SQL manteniendo los aliases del DOCX.
 2. Cambiar los Page Items de `bindings` por los de la página.

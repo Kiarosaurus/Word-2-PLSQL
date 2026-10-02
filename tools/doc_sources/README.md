@@ -18,7 +18,7 @@ Word y Python se usan solamente en la computadora del desarrollador. En el servi
 
 El SQL debe devolver el texto que se desea imprimir. Para un LOV, use un `JOIN` y seleccione el *display value* con el alias declarado en Word.
 
-La plantilla de referencia (`templates/` y `examples/entidades.docx`) usa los cinco tipos de marcador:
+La plantilla de referencia (`templates/` y `proyectos/entidades/entidades.docx`) usa los cinco tipos de marcador:
 
 ```
 {{REPORT_TITLE}}                  <- título: párrafo previo a la tabla
@@ -35,11 +35,11 @@ Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}   <- pie de página de Word
 ```flujo
 # Figura 1. Del Word a la descarga en APEX
 Informática | Diseñar la plantilla Word | título, tabla de dos filas y pie con marcadores {{...}}
-Compilador | Nuevo proyecto desde DOCX | crea automáticamente <nombre>.report.json y <nombre>.sql
+Compilador | Nuevo proyecto desde DOCX | copia el Word a proyectos\<nombre>\ y crea automáticamente generado\<nombre>.sql y .report.json
 Informática | Ajustar SQL y proyecto | tablas reales, filtros y anchos; editables a mano en cualquier momento
 Compilador | Validar | revisa DOCX, SQL y proyecto sin escribir archivos
 ? Compilador | ¿Sin errores? | No: corregir según el código de diagnóstico y validar otra vez
-Compilador | Compilar | genera automáticamente template.json, validation.json y apex_process.sql
+Compilador | Compilar | genera automáticamente apex_process.sql junto al DOCX, y template.json y validation.json en la carpeta generado
 APEX | Pegar apex_process.sql en el proceso de descarga | el package se instala una sola vez por esquema
 Usuario final | Descargar PDF o XLSX | APEX_DATA_EXPORT genera el archivo en el servidor
 ```
@@ -64,16 +64,22 @@ Validar el ejemplo sin escribir artefactos:
 ```
 # Revisa DOCX + SQL + proyecto; no escribe nada en disco
 apex-report-compiler validate `
-  --project .\examples\entidades.report.json
+  --project .\proyectos\entidades\generado\entidades.report.json
 ```
 
 Compilarlo:
 
 ```
-# Genera build\entidades\template.json, validation.json y apex_process.sql
+# apex_process.sql -> proyectos\entidades\ ; template.json y validation.json -> generado\
 apex-report-compiler compile `
-  --project .\examples\entidades.report.json `
-  --output .\build\entidades
+  --project .\proyectos\entidades\generado\entidades.report.json
+```
+
+Cargar un Word propio (se copia a `proyectos\<nombre>\`):
+
+```
+# Crea proyectos\ventas\ventas.docx y proyectos\ventas\generado\ventas.sql/.report.json
+apex-report-compiler new --docx C:\Descargas\ventas.docx --page 42
 ```
 
 Interfaz gráfica:
@@ -83,21 +89,28 @@ Interfaz gráfica:
 apex-report-compiler-gui
 ```
 
-La interfaz puede crear un proyecto inicial desde un DOCX (Page Items `PXX_` mapeados a los marcadores del Word) y, al compilar, muestra exactamente qué archivo subir a APEX, dónde pegarlo y qué Page Items crear.
+La interfaz puede crear un proyecto inicial desde un DOCX en `proyectos\<nombre>\` (Page Items `PXX_` mapeados a los marcadores del Word) y, al compilar, muestra exactamente qué archivo subir a APEX, dónde pegarlo y qué Page Items crear.
 
 También puede ejecutar la CLI sin instalar el paquete editable:
 
 ```
 # Mismo comando validate usando el código de src\, sin instalar el paquete
 python .\launch_compiler.py validate `
-  --project .\examples\entidades.report.json
+  --project .\proyectos\entidades\generado\entidades.report.json
 ```
 
 ## Artefactos generados
 
-- `template.json`: interpretación canónica de la plantilla y configuración;
-- `validation.json`: diagnósticos reproducibles;
-- `apex_process.sql`: proceso PL/SQL listo para revisar y copiar en APEX.
+```
+proyectos\ventas\
+  ventas.docx            <- plantilla
+  apex_process.sql       <- proceso PL/SQL listo para revisar y copiar en APEX
+  generado\
+    ventas.sql           <- consulta fuente (su texto queda dentro de apex_process.sql)
+    ventas.report.json   <- proyecto: binds, campos, anchos, estilos
+    template.json        <- interpretación canónica de la plantilla y configuración
+    validation.json      <- diagnósticos reproducibles
+```
 
 Los tres se generan automáticamente en cada compilación; no hay que escribirlos a mano. Pueden editarse directamente si hace falta, pero la siguiente compilación los reemplaza: los cambios permanentes se hacen en el DOCX, el `.sql` o el `.report.json`.
 
@@ -122,7 +135,8 @@ El proceso generado llama a la operación pública `PKG_CORPORATE_REPORTS.DOWNLO
 - `docs/TEMPLATE_QA.docx`: control de calidad de las plantillas de referencia.
 - `docs/RELEASE_REVIEW.docx`: evidencia y veredicto de la revisión de liberación.
 - `sql/README.docx`: instalación y seguridad del package.
-- `examples/README.docx` y `examples/`: proyecto ejecutable y resultado esperado.
+- `proyectos/`: una carpeta por reporte, con el mismo nombre que su DOCX. Junto al DOCX queda `apex_process.sql` (lo que se pega en APEX); el material de trabajo va en `generado/`. Volver a cargar un DOCX con el mismo nombre reemplaza solo esos archivos, con copias `.bak`; nada más se borra.
+- `proyectos/entidades/`: proyecto de ejemplo ejecutable; es el único que incluye además su documentación (`README.docx`).
 - `templates/`: plantillas Word de referencia, vertical y horizontal.
 - `tools/doc_sources/`: fuentes de esta documentación; `python tools\build_documentation.py` regenera todos los Word.
 - `tests/`: pruebas automáticas del compilador y del contrato estático PL/SQL.

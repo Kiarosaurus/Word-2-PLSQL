@@ -1,7 +1,7 @@
 {
   "schema": "corporate-report-project/1.0",
   "report_id": "ENTIDADES",
-  "template": "entidades.docx",
+  "template": "../entidades.docx",
   "query_file": "entidades.sql",
   "title": "Relación de entidades",
   "file_name": "reporte_entidades",

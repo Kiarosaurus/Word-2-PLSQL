@@ -6,8 +6,9 @@ import re
 import sys
 import traceback
 
-from .apex_guide import PAGE_PLACEHOLDER, build_apex_guide, format_skeleton, write_skeleton
+from .apex_guide import PAGE_PLACEHOLDER, build_apex_guide
 from .compiler import CompilationResult, compile_project, validate_project
+from .workspace import default_projects_root, files_to_replace, format_import, import_docx, workspace_outputs
 
 
 def _format_diagnostics(items: list[dict]) -> list[str]:
@@ -44,8 +45,16 @@ def _format_result(result: CompilationResult, *, compiled: bool = False) -> str:
 
 
 def default_output(project_path: Path) -> Path:
-    """Carpeta ``build/<reporte>`` junto al proyecto, sin el sufijo ``.report``."""
+    """Carpeta de salida predeterminada.
 
+    En ``proyectos/<nombre>/generado/`` es esa misma carpeta (y
+    ``apex_process.sql`` va a ``proyectos/<nombre>/``). Fuera de esa
+    organización, ``build/<reporte>`` junto al proyecto.
+    """
+
+    layout = workspace_outputs(project_path)
+    if layout is not None:
+        return layout[0]
     name = project_path.name
     for suffix in (".report.json", ".json"):
         if name.lower().endswith(suffix):
@@ -118,8 +127,9 @@ class CompilerApplication:
         self.result.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
 
         self._show(
-            "1. Si aún no tiene proyecto, pulse «Nuevo proyecto desde DOCX…».\n"
-            "2. Seleccione el .report.json, pulse Validar y luego Compilar.\n"
+            "1. Si aún no tiene proyecto, pulse «Nuevo proyecto desde DOCX…»: el Word se copia a\n"
+            f"   {default_projects_root()}\\<nombre>\\ y el proyecto se crea en su carpeta generado.\n"
+            "2. Seleccione el .report.json (carpeta generado), pulse Validar y luego Compilar.\n"
             "3. Tras compilar, aquí verá exactamente qué subir a APEX y dónde."
         )
 
@@ -173,6 +183,7 @@ class CompilerApplication:
 
         value = filedialog.askopenfilename(
             title="Seleccione el proyecto",
+            initialdir=str(default_projects_root()),
             filetypes=(("Proyecto de reporte", "*.report.json"), ("JSON", "*.json"), ("Todos", "*.*")),
         )
         if value:
@@ -209,12 +220,26 @@ class CompilerApplication:
             self._show("El número de página debe ser numérico (por ejemplo 42) o XX.")
             return
 
+        existing = files_to_replace(Path(value))
+        if existing:
+            from tkinter import messagebox
+
+            listing = "\n".join(f"  {path.name}" for path in existing)
+            if not messagebox.askyesno(
+                "Reemplazar proyecto",
+                f"La carpeta del proyecto «{Path(value).stem}» ya tiene estos archivos:\n{listing}\n\n"
+                "Se reemplazarán y de cada uno se guardará una copia .bak en la carpeta generado. "
+                "Los demás archivos de la carpeta no se tocan.\n\n¿Continuar?",
+                parent=self.root,
+            ):
+                return
+
         def action() -> None:
-            diagnostics, skeleton, files = write_skeleton(Path(value), page=page)
-            lines = _format_diagnostics(diagnostics.to_dict()["diagnostics"])
-            if skeleton is not None and files:
-                self._set_project(files[0])
-                lines.append(format_skeleton(skeleton, files, page))
+            result = import_docx(Path(value), page=page, replace=bool(existing))
+            lines = _format_diagnostics(result.diagnostics.to_dict()["diagnostics"])
+            if result.written and result.paths is not None:
+                self._set_project(result.paths.project)
+                lines.append(format_import(result, page))
             elif not lines:
                 lines.append("No se pudo generar el proyecto.")
             self._show("\n".join(lines))
@@ -236,7 +261,14 @@ class CompilerApplication:
             self.output.set(output)
 
         def action() -> None:
-            result = compile_project(path, Path(output), strict=self.strict.get())
+            layout = workspace_outputs(path)
+            process_directory = layout[1] if layout is not None and not self._output_is_custom() else None
+            result = compile_project(
+                path,
+                Path(output),
+                strict=self.strict.get(),
+                process_directory=process_directory,
+            )
             self._show(_format_result(result, compiled=True))
             self._last_process = next((item for item in result.artifacts if item.name == "apex_process.sql"), None)
             if self._last_process is not None:

@@ -131,19 +131,36 @@ def _load_json(path: Path, diagnostics: Diagnostics) -> dict[str, Any] | None:
     return value
 
 
+GENERATED_DIRNAME = "generado"
+
+
+def project_root(project_path: Path) -> Path:
+    """Carpeta que confina las rutas del proyecto.
+
+    En la organización por proyectos el ``.report.json`` vive en
+    ``<proyecto>/generado/`` y la plantilla en ``<proyecto>/``; la raíz es
+    entonces la carpeta del proyecto. En cualquier otro caso, la carpeta del
+    propio ``.report.json``.
+    """
+
+    parent = Path(project_path).parent
+    return parent.parent if parent.name.casefold() == GENERATED_DIRNAME else parent
+
+
 def _safe_relative_file(
     base: Path,
     value: object,
     *,
     label: str,
     diagnostics: Diagnostics,
+    root: Path | None = None,
 ) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         diagnostics.error("PROJECT-004", f"Falta {label}.")
         return None
     candidate = (base / value).resolve()
     try:
-        candidate.relative_to(base.resolve())
+        candidate.relative_to((root or base).resolve())
     except ValueError:
         diagnostics.error(
             "PROJECT-005",
@@ -776,8 +793,13 @@ def locate_project_inputs(path: Path, diagnostics: Diagnostics) -> tuple[dict[st
     raw = _load_json(path, diagnostics)
     if raw is None:
         return {}, None, None
-    template_path = _safe_relative_file(path.parent, raw.get("template"), label="la plantilla", diagnostics=diagnostics)
-    query_path = _safe_relative_file(path.parent, raw.get("query_file"), label="la consulta SQL", diagnostics=diagnostics)
+    root = project_root(path)
+    template_path = _safe_relative_file(
+        path.parent, raw.get("template"), label="la plantilla", diagnostics=diagnostics, root=root
+    )
+    query_path = _safe_relative_file(
+        path.parent, raw.get("query_file"), label="la consulta SQL", diagnostics=diagnostics, root=root
+    )
     return raw, template_path, query_path
 
 

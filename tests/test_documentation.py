@@ -28,7 +28,7 @@ REQUIRED = {
     "docs/TEMPLATE_QA.docx": ("templates", "{{FIELD:UNIDAD}}"),
     "README.docx": ("Abrir compilador.bat", "automáticamente"),
     "sql/README.docx": ("Reload on Submit", "-20173"),
-    "examples/README.docx": ("build\\entidades","{{FIELD:UNIDAD}}"),
+    "proyectos/entidades/README.docx": ("generado", "{{FIELD:UNIDAD}}", ".bak"),
 }
 # Nombres de entregas previas: la documentación describe solo la versión actual.
 FORBIDDEN = (
@@ -46,7 +46,7 @@ MARKERS = ("{{REPORT_TITLE}}", "{{FIELD:", "{{COLUMN:", "{{APP_USER}}", "{{GENER
 TEMPLATES = (
     "templates/entidades_portrait.docx",
     "templates/entidades_landscape.docx",
-    "examples/entidades.docx",
+    "proyectos/entidades/entidades.docx",
 )
 
 
