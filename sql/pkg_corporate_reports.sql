@@ -817,18 +817,22 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
 
     PROCEDURE assert_read_only_query(p_sql_query IN VARCHAR2)
     IS
-        l_check VARCHAR2(32767) := LTRIM(p_sql_query);
+        /* Espacio, tabulador, LF y CR: igual que el compilador local. */
+        c_blank CONSTANT VARCHAR2(4) := ' ' || CHR(9) || CHR(10) || CHR(13);
+        l_check VARCHAR2(32767);
         l_end   PLS_INTEGER;
     BEGIN
-        IF l_check IS NULL THEN
-            raise_application_error(-20101, 'No se recibió la consulta SQL.');
-        END IF;
-
         IF LENGTHB(p_sql_query) > 32767 THEN
             raise_application_error(
                 -20102,
                 'La consulta SQL supera el límite de 32767 bytes.'
             );
+        END IF;
+
+        l_check := LTRIM(p_sql_query, c_blank);
+
+        IF l_check IS NULL THEN
+            raise_application_error(-20101, 'No se recibió la consulta SQL.');
         END IF;
 
         IF INSTR(p_sql_query, CHR(0)) > 0 THEN
@@ -845,7 +849,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
                 IF l_end = 0 THEN
                     l_check := NULL;
                 ELSE
-                    l_check := LTRIM(SUBSTR(l_check, l_end + 1));
+                    l_check := LTRIM(SUBSTR(l_check, l_end + 1), c_blank);
                 END IF;
             ELSIF SUBSTR(l_check, 1, 2) = '/*' THEN
                 l_end := INSTR(l_check, '*/', 3);
@@ -855,13 +859,13 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
                         'La consulta contiene un comentario sin cerrar.'
                     );
                 END IF;
-                l_check := LTRIM(SUBSTR(l_check, l_end + 2));
+                l_check := LTRIM(SUBSTR(l_check, l_end + 2), c_blank);
             ELSE
                 EXIT;
             END IF;
         END LOOP;
 
-        IF NOT REGEXP_LIKE(
+        IF l_check IS NULL OR NOT REGEXP_LIKE(
                    l_check,
                    '^(SELECT|WITH)([^A-Z0-9_$#]|$)',
                    'i'
@@ -1049,20 +1053,20 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
             l_result := l_result || l_replacement;
             l_scan_pos := l_close_pos + 2;
 
-            IF LENGTH(l_result) > 4000 THEN
+            IF LENGTHB(l_result) > 4000 THEN
                 raise_application_error(
                     -20154,
                     'El texto final de ' || p_label ||
-                    ' supera el límite de 4000 caracteres.'
+                    ' supera el límite de 4000 bytes.'
                 );
             END IF;
         END LOOP;
 
-        IF LENGTH(l_result) > 4000 THEN
+        IF LENGTHB(l_result) > 4000 THEN
             raise_application_error(
                 -20154,
                 'El texto final de ' || p_label ||
-                ' supera el límite de 4000 caracteres.'
+                ' supera el límite de 4000 bytes.'
             );
         END IF;
 
@@ -1962,16 +1966,17 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
         /* El contrato congelado utiliza siempre papel A4. */
         l_paper_size := apex_data_export.c_size_a4;
 
-        l_effective_title := SUBSTR(
+        l_effective_title := SUBSTRB(
             NVL(TRIM(p_title), 'Reporte'),
             1,
             255
         );
 
-        l_base_file_name := SUBSTR(
+        /* Lista explícita: los rangos A-Z dependen de NLS_SORT. */
+        l_base_file_name := SUBSTRB(
             REGEXP_REPLACE(
                 NVL(TRIM(p_file_name), 'reporte'),
-                '[^A-Za-z0-9_-]+',
+                '[^ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]+',
                 '_'
             ),
             1,
@@ -2024,6 +2029,20 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
                     'El mapeo de Page Items',
                     -20116
                 );
+
+                IF l_name IN (
+                       'APP_USER', 'APP_ID', 'APP_PAGE_ID', 'APP_SESSION',
+                       'APP_ALIAS', 'APP_PAGE_ALIAS', 'APP_BUILDER_SESSION',
+                       'SESSION', 'REQUEST', 'DEBUG', 'WORKSPACE_ID',
+                       'APP_REQUEST_DATA_HASH', 'APP_SESSION_VISIBLE'
+                   )
+                THEN
+                    raise_application_error(
+                        -20173,
+                        'El bind "' || l_name ||
+                        '" es un nombre reservado de APEX.'
+                    );
+                END IF;
 
                 IF l_bind_names.EXISTS(l_name) THEN
                     raise_application_error(
@@ -2167,7 +2186,12 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
                     END CASE;
                 EXCEPTION
                     WHEN OTHERS THEN
-                        IF SQLCODE BETWEEN -20999 AND -20000 THEN
+                        /*
+                         * Solo se propagan los errores propios de este
+                         * bloque. Un error de APEX_SESSION_STATE podría
+                         * incluir el valor recibido en su mensaje.
+                         */
+                        IF SQLCODE IN (-20119, -20120) THEN
                             RAISE;
                         END IF;
 
@@ -2417,7 +2441,12 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
                     END CASE;
                 EXCEPTION
                     WHEN OTHERS THEN
-                        IF SQLCODE BETWEEN -20999 AND -20000 THEN
+                        /* Errores propios de este bloque; el resto se sanea. */
+                        IF SQLCODE IN (
+                               -20125, -20127, -20128,
+                               -20129, -20130, -20131
+                           )
+                        THEN
                             RAISE;
                         END IF;
 
@@ -2554,11 +2583,11 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
             END IF;
             l_all_columns(l_name) := TRUE;
 
-            IF LENGTH(column_record.column_heading) > 255 THEN
+            IF LENGTHB(column_record.column_heading) > 255 THEN
                 raise_application_error(
                     -20137,
                     'El encabezado de la columna "' || l_name ||
-                    '" supera 255 caracteres.'
+                    '" supera 255 bytes.'
                 );
             END IF;
 
@@ -2570,7 +2599,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
                 p_context         => l_context,
                 p_column_name     => l_name,
                 p_attribute_label =>
-                    SUBSTR(NVL(column_record.column_heading, l_name), 1, 255),
+                    SUBSTRB(NVL(column_record.column_heading, l_name), 1, 255),
                 p_is_required     => TRUE,
                 p_data_type       => NULL
             );
@@ -2586,7 +2615,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
 
             l_column_count := l_column_count + 1;
             l_columns(l_column_count).column_name := l_name;
-            l_columns(l_column_count).column_heading := SUBSTR(
+            l_columns(l_column_count).column_heading := SUBSTRB(
                 NVL(column_record.column_heading, l_name),
                 1,
                 255

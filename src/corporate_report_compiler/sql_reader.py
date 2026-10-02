@@ -123,11 +123,38 @@ def validate_sql(sql: str, diagnostics: Diagnostics) -> tuple[str, ...]:
     if "\x00" in sql:
         diagnostics.error("SQL-009", "La consulta contiene un carácter NUL no permitido.")
     masked = _mask_literals_and_comments(sql, diagnostics)
-    first = re.match(r"\s*(SELECT|WITH)\b", masked, flags=re.IGNORECASE)
+    # Solo espacio, tabulador y saltos de línea ASCII: son los caracteres que
+    # el package elimina antes de comprobar el primer token.
+    first = re.match(r"[ \t\r\n]*(SELECT|WITH)(?![A-Za-z0-9_$#])", masked, flags=re.IGNORECASE)
     if not first:
         diagnostics.error("SQL-006", "La consulta debe comenzar con SELECT o WITH.")
     if ";" in masked:
         diagnostics.error("SQL-007", "No se permiten puntos y coma ni varias sentencias SQL.")
+    # APEX sustituye &ITEM. en el código del proceso antes de ejecutarlo, también
+    # dentro de literales y comentarios: el valor de sesión quedaría concatenado.
+    # El emisor convierte todo '&' en chr(38), así que la sustitución nunca
+    # ocurre; aun así, fuera de literales indica un SQL que no hará lo esperado.
+    substitution_pattern = r"&[A-Za-z][A-Za-z0-9_$#]*\."
+    substitution = re.search(substitution_pattern, masked)
+    if substitution:
+        diagnostics.error(
+            "SQL-013",
+            "La consulta contiene una sustitución APEX &ITEM.; use un bind :NOMBRE mapeado en 'bindings'.",
+            location=f"carácter {substitution.start() + 1}",
+        )
+    elif re.search(substitution_pattern, sql):
+        diagnostics.warning(
+            "SQL-015",
+            "Un literal o comentario contiene &NOMBRE.; se conservará como texto y APEX no lo sustituirá.",
+        )
+    word = r"(?<![A-Za-z0-9_$#]){}(?![A-Za-z0-9_$#])"
+    if re.search(word.format("INTO"), masked, flags=re.IGNORECASE) or re.search(
+        word.format(r"FOR\s+UPDATE"), masked, flags=re.IGNORECASE
+    ):
+        diagnostics.error(
+            "SQL-014",
+            "La consulta de un reporte no puede usar INTO ni FOR UPDATE.",
+        )
     if re.search(r"(?m)^\s*/\s*$", masked):
         diagnostics.error("SQL-010", "No se permite el terminador SQL*Plus '/'.")
     binds: list[str] = []

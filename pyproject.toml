@@ -13,6 +13,8 @@ dependencies = [
 
 [project.scripts]
 apex-report-compiler = "corporate_report_compiler.cli:main"
+
+[project.gui-scripts]
 apex-report-compiler-gui = "corporate_report_compiler.gui:main"
 
 [tool.setuptools]

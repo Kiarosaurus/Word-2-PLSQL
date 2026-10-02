@@ -130,18 +130,23 @@ def _verify_staged_artifacts(
     return expected if not diagnostics.has_errors else ()
 
 
+ARTIFACT_NAMES = ("template.json", "validation.json", "apex_process.sql")
+
+
 def _commit_artifacts(staging_files: tuple[Path, ...], output: Path) -> tuple[Path, ...]:
     """Publica los archivos con rollback si falla una sustitución.
 
     El directorio destino puede contener otros archivos: solo se sustituyen los
     tres nombres contractuales. Los archivos anteriores se conservan en un
-    respaldo temporal hasta completar toda la operación.
+    respaldo temporal hasta completar toda la operación. Si una restauración
+    falla, el respaldo no se elimina y su ruta se incluye en el error.
     """
 
     output.mkdir(parents=True, exist_ok=True)
     backup = Path(tempfile.mkdtemp(prefix=".report-compiler-backup-", dir=output.parent))
     installed: list[Path] = []
     saved: list[tuple[Path, Path]] = []
+    keep_backup = False
     try:
         for source in staging_files:
             destination = output / source.name
@@ -151,18 +156,24 @@ def _commit_artifacts(staging_files: tuple[Path, ...], output: Path) -> tuple[Pa
                 saved.append((backup_path, destination))
             os.replace(source, destination)
             installed.append(destination)
-    except Exception:
+    except BaseException:
         for destination in reversed(installed):
             try:
                 destination.unlink(missing_ok=True)
             except OSError:
                 pass
         for backup_path, destination in reversed(saved):
-            if backup_path.exists():
-                os.replace(backup_path, destination)
+            try:
+                if backup_path.exists():
+                    os.replace(backup_path, destination)
+            except OSError:
+                keep_backup = True
+        if keep_backup:
+            raise OSError(f"No se pudo restaurar la salida anterior; respaldo conservado en {backup}")
         raise
     finally:
-        shutil.rmtree(backup, ignore_errors=True)
+        if not keep_backup:
+            shutil.rmtree(backup, ignore_errors=True)
     return tuple(output / path.name for path in staging_files)
 
 
@@ -192,6 +203,28 @@ def compile_project(
             "La ruta de salida existe y no es una carpeta.",
             location=str(output),
         )
+        return replace(result, definition=None)
+
+    protected = {
+        path.resolve()
+        for path in (result.project_path, result.project.template_path, result.project.query_path)
+    }
+    for name in ARTIFACT_NAMES:
+        destination = output / name
+        if destination.resolve() in protected:
+            result.diagnostics.error(
+                "IO-003",
+                f"La salida sobrescribiría un archivo fuente del proyecto: {name}.",
+                location=str(destination),
+                suggestion="Use una carpeta de salida distinta, por ejemplo build\\<reporte>.",
+            )
+        elif destination.exists() and not destination.is_file():
+            result.diagnostics.error(
+                "IO-001",
+                f"La ruta de salida {name} existe y no es un archivo.",
+                location=str(destination),
+            )
+    if result.diagnostics.has_errors:
         return replace(result, definition=None)
 
     output_parent = output.parent

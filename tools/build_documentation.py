@@ -1,4 +1,4 @@
-"""Genera los entregables Word a partir de la documentación Markdown final."""
+"""Convierte documentación Markdown en documentos Word con el estilo corporativo."""
 
 from __future__ import annotations
 
@@ -69,12 +69,16 @@ def set_keep(paragraph) -> None:
 
 
 def add_inline(paragraph, text: str, *, code: bool = False) -> None:
-    pattern = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*)")
+    pattern = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*|(?<![*\w])\*[^*\s][^*]*\*(?![*\w]))")
     for part in pattern.split(text):
         if not part:
             continue
+        italic = part.startswith("*") and not part.startswith("**") and part.endswith("*") and len(part) > 2
         run = paragraph.add_run(part[1:-1] if part.startswith("`") and part.endswith("`") else
-                                part[2:-2] if part.startswith("**") and part.endswith("**") else part)
+                                part[2:-2] if part.startswith("**") and part.endswith("**") else
+                                part[1:-1] if italic else part)
+        if italic:
+            run.italic = True
         if code or (part.startswith("`") and part.endswith("`")):
             run.font.name = "Consolas"
             run.font.size = Pt(8.2)
@@ -184,6 +188,13 @@ def add_table(document: Document, rows: list[list[str]]) -> None:
                 if row_index == 0:
                     run.bold = True
                     run.font.color.rgb = RGBColor(255, 255, 255)
+    if len(rows) <= 15:
+        # Tablas breves: se mantienen en una sola página para no dejar filas
+        # huérfanas; las largas se parten repitiendo el encabezado.
+        for row in table.rows[:-1]:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    paragraph.paragraph_format.keep_with_next = True
     document.add_paragraph().paragraph_format.space_after = Pt(1)
 
 
@@ -198,36 +209,62 @@ def parse_table(lines: list[str], start: int) -> tuple[list[list[str]], int]:
     return result, index
 
 
+LIST_ITEM = re.compile(r"^(?P<indent>\s*)(?P<marker>[-*]|\d+\.)\s+(?P<text>.+)$")
+LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+AUTOLINK = re.compile(r"<(https?://[^>]+)>")
+
+
+def normalize_links(text: str) -> str:
+    text = LINK.sub(lambda match: f"{match.group(1)} ({match.group(2)})", text)
+    return AUTOLINK.sub(lambda match: match.group(1), text)
+
+
+def is_block_start(stripped: str) -> bool:
+    return (
+        not stripped
+        or stripped.startswith(("```", "|", "#"))
+        or LIST_ITEM.match(stripped) is not None
+    )
+
+
+def add_list_item(document: Document, marker: str, text: str, level: int) -> None:
+    indent = 0.65 + 0.6 * level
+    p = document.add_paragraph()
+    p.paragraph_format.left_indent = Cm(indent)
+    p.paragraph_format.first_line_indent = Cm(-0.45)
+    p.paragraph_format.space_after = Pt(3)
+    # Viñeta o número explícito: evita que Word continúe automáticamente una
+    # lista anterior situada varias páginas antes.
+    p.add_run(("• " if marker in {"-", "*"} else f"{marker} "))
+    add_inline(p, text)
+
+
 def markdown_to_docx(source: Path, destination: Path, title: str, subtitle: str) -> None:
     lines = source.read_text(encoding="utf-8").splitlines()
     document = Document()
     configure_document(document, title, subtitle)
     index = 0
-    in_code = False
-    code_lines: list[str] = []
     skipped_title = False
     while index < len(lines):
         raw = lines[index]
         stripped = raw.strip()
-        if stripped.startswith("```"):
-            if in_code:
-                add_code_block(document, code_lines)
-                code_lines = []
-                in_code = False
-            else:
-                in_code = True
-            index += 1
-            continue
-        if in_code:
-            code_lines.append(raw)
-            index += 1
-            continue
         if not stripped:
+            index += 1
+            continue
+        if stripped.startswith("```"):
+            code_lines: list[str] = []
+            fence_indent = len(raw) - len(raw.lstrip())
+            index += 1
+            while index < len(lines) and not lines[index].strip().startswith("```"):
+                line = lines[index]
+                code_lines.append(line[fence_indent:] if line[:fence_indent].isspace() else line)
+                index += 1
+            add_code_block(document, code_lines)
             index += 1
             continue
         if stripped.startswith("|"):
             rows, index = parse_table(lines, index)
-            add_table(document, rows)
+            add_table(document, [[normalize_links(cell) for cell in row] for row in rows])
             continue
         heading = re.match(r"^(#{1,4})\s+(.+)$", stripped)
         if heading:
@@ -242,25 +279,38 @@ def markdown_to_docx(source: Path, destination: Path, title: str, subtitle: str)
             set_keep(paragraph)
             index += 1
             continue
-        if stripped.startswith("- "):
-            p = document.add_paragraph(style="List Bullet")
-            add_inline(p, stripped[2:])
+        item = LIST_ITEM.match(raw)
+        if item:
+            parts = [item.group("text").strip()]
             index += 1
+            while index < len(lines):
+                following = lines[index]
+                if is_block_start(following.strip()):
+                    break
+                parts.append(following.strip())
+                index += 1
+            level = min(len(item.group("indent")) // 2, 3)
+            add_list_item(document, item.group("marker"), normalize_links(" ".join(parts)), level)
             continue
-        numbered = re.match(r"^(\d+)\.\s+(.+)$", stripped)
-        if numbered:
-            # Número explícito: evita que Word continúe automáticamente una
-            # lista anterior situada varias páginas antes.
-            p = document.add_paragraph()
-            p.paragraph_format.left_indent = Cm(0.65)
-            p.paragraph_format.first_line_indent = Cm(-0.45)
-            p.add_run(f"{numbered.group(1)}. ")
-            add_inline(p, numbered.group(2))
-            index += 1
-            continue
+
+        # Párrafo: une las líneas ajustadas a mano; dos espacios finales
+        # marcan un salto de línea explícito.
         p = document.add_paragraph()
-        add_inline(p, stripped)
-        index += 1
+        first = True
+        while index < len(lines):
+            line = lines[index]
+            if not first and is_block_start(line.strip()):
+                break
+            if not first:
+                p.add_run(" ")
+            add_inline(p, normalize_links(line.strip()))
+            first = False
+            index += 1
+            if line.endswith("  "):
+                p.add_run().add_break()
+                if index < len(lines) and not is_block_start(lines[index].strip()):
+                    continue
+                break
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     document.core_properties.title = title
@@ -270,22 +320,51 @@ def markdown_to_docx(source: Path, destination: Path, title: str, subtitle: str)
     document.save(destination)
 
 
-def main() -> None:
-    markdown_to_docx(
-        ROOT / "docs" / "MANUAL.md",
-        OUTPUT / "Manual_de_uso.docx",
-        "Manual de uso",
-        "Compilador local Word → reportes Oracle APEX 24.2",
-    )
-    markdown_to_docx(
-        ROOT / "docs" / "INFORME_ALCANCE.md",
-        OUTPUT / "Informe_de_alcance_y_limitaciones.docx",
-        "Informe de alcance y limitaciones",
-        "Arquitectura, seguridad y fronteras del producto · Versión 1.0",
-    )
-    for path in sorted(OUTPUT.glob("*.docx")):
-        print(path.relative_to(ROOT))
+# (origen Markdown, destino Word, título, subtítulo)
+DOCUMENTS = (
+    ("docs/MANUAL.md", "deliverables/Manual_de_uso.docx", "Manual de uso",
+     "Compilador local Word → reportes Oracle APEX 24.2"),
+    ("docs/INFORME_ALCANCE.md", "deliverables/Informe_de_alcance_y_limitaciones.docx",
+     "Informe de alcance y limitaciones",
+     "Arquitectura, seguridad y fronteras del producto · Versión 1.0"),
+    ("docs/CONTRACT.md", "docs/CONTRACT.docx", "Contrato funcional y técnico",
+     "Compilador Word restringido para reportes Oracle APEX 24.2"),
+    ("docs/TEMPLATE_QA.md", "docs/TEMPLATE_QA.docx", "Control de calidad de las plantillas",
+     "Plantillas de referencia del contrato 1.0"),
+    ("docs/RELEASE_REVIEW.md", "docs/RELEASE_REVIEW.docx", "Revisión de liberación",
+     "APEX Word Report Compiler 1.0.0"),
+    ("README.md", "README.docx", "Compilador local Word → reportes Oracle APEX",
+     "Guía de inicio · Versión 1.0"),
+    ("sql/README.md", "sql/README.docx", "Instalación de PKG_CORPORATE_REPORTS",
+     "Package común para Oracle APEX 24.2"),
+    ("examples/README.md", "examples/README.docx", "Ejemplo ejecutable ENTIDADES",
+     "Proyecto completo de referencia"),
+)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Convierte Markdown a Word.
+
+    Sin argumentos convierte la lista ``DOCUMENTS`` (las fuentes que existan).
+    Con argumentos: ``origen.md destino.docx "Título" "Subtítulo"``.
+    """
+
+    import sys
+
+    args = sys.argv[1:] if argv is None else argv
+    if args:
+        if len(args) != 4:
+            print("Uso: build_documentation.py origen.md destino.docx \"Título\" \"Subtítulo\"")
+            return 2
+        markdown_to_docx(Path(args[0]), Path(args[1]), args[2], args[3])
+        print(args[1])
+        return 0
+    for source, destination, title, subtitle in DOCUMENTS:
+        if (ROOT / source).is_file():
+            markdown_to_docx(ROOT / source, ROOT / destination, title, subtitle)
+            print(destination)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

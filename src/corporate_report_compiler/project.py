@@ -20,6 +20,14 @@ ALLOWED_ALIGNMENTS = {"START", "CENTER", "END"}
 ALLOWED_FONT_FAMILIES = {"HELVETICA", "TIMES", "COURIER"}
 ALLOWED_FONT_WEIGHTS = {"NORMAL", "BOLD"}
 COLOR_PATTERN = re.compile(r"^#[0-9A-F]{6}$")
+# Nombres que APEX reserva para valores de contexto. Como bind lógico tomarían
+# el valor de un Page Item modificable y no el del contexto autenticado.
+RESERVED_BIND_NAMES = {
+    "APP_USER", "APP_ID", "APP_PAGE_ID", "APP_SESSION", "APP_ALIAS",
+    "APP_PAGE_ALIAS", "APP_BUILDER_SESSION", "SESSION", "REQUEST", "DEBUG",
+    "WORKSPACE_ID", "APP_REQUEST_DATA_HASH", "APP_SESSION_VISIBLE",
+}
+MAX_WEIGHT = 1000
 ALLOWED_PROJECT_KEYS = {
     "schema", "report_id", "template", "query_file", "title", "file_name",
     "max_rows", "orientation", "format_item", "orientation_item", "bindings",
@@ -59,6 +67,38 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Constante JSON no permitida: {value}")
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Clave JSON duplicada: {key!r}")
+        result[key] = value
+    return result
+
+
+def _text_value(
+    container: dict[str, Any],
+    key: str,
+    *,
+    location: str,
+    diagnostics: Diagnostics,
+    default: str = "",
+) -> str:
+    """Devuelve una propiedad textual sin convertir silenciosamente otros tipos."""
+
+    value = container.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        diagnostics.error(
+            "PROJECT-103",
+            f"La propiedad {key!r} debe ser texto JSON.",
+            location=location,
+        )
+        return default
+    return value
+
+
 def _reject_unknown_keys(
     value: dict[str, Any],
     allowed: set[str],
@@ -77,8 +117,12 @@ def _load_json(path: Path, diagnostics: Diagnostics) -> dict[str, Any] | None:
         return None
     try:
         with path.open("r", encoding="utf-8-sig") as stream:
-            value = json.load(stream, parse_constant=_reject_json_constant)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            value = json.load(
+                stream,
+                parse_constant=_reject_json_constant,
+                object_pairs_hook=_reject_duplicate_keys,
+            )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
         diagnostics.error("PROJECT-002", f"No se pudo leer el proyecto JSON: {exc}", location=str(path))
         return None
     if not isinstance(value, dict):
@@ -137,21 +181,50 @@ def _validate_bindings(
             code="PROJECT-094",
             diagnostics=diagnostics,
         )
-        raw_name = entry.get("bind", entry.get("name", ""))
-        name = normalize_identifier(str(raw_name), label="El bind", diagnostics=diagnostics, location=location)
+        for preferred, alias in (("bind", "name"), ("format_mask", "format")):
+            if preferred in entry and alias in entry:
+                diagnostics.error(
+                    "PROJECT-106",
+                    f"Use solo {preferred!r}; {alias!r} es un alias obsoleto.",
+                    location=location,
+                )
+        raw_name = _text_value(
+            entry,
+            "bind" if "bind" in entry else "name",
+            location=location,
+            diagnostics=diagnostics,
+        )
+        name = normalize_identifier(raw_name, label="El bind", diagnostics=diagnostics, location=location)
         if name is None:
+            continue
+        if name in RESERVED_BIND_NAMES:
+            diagnostics.error(
+                "PROJECT-017",
+                f"{name} es un nombre reservado de APEX y no puede usarse como bind lógico.",
+                location=location,
+                suggestion=(
+                    "Para filtrar por el usuario autenticado use "
+                    "SYS_CONTEXT('APEX$SESSION', 'APP_USER') en la consulta; "
+                    "para imprimirlo use {{APP_USER}}."
+                ),
+            )
             continue
         if name in seen:
             diagnostics.error("PROJECT-012", f"El bind {name} está duplicado.", location=location)
             continue
         seen.add(name)
-        item = str(entry.get("item", "")).strip().upper()
+        item = _text_value(entry, "item", location=location, diagnostics=diagnostics).strip().upper()
         if len(item) > 128 or not ITEM_PATTERN.fullmatch(item):
             diagnostics.error("PROJECT-013", f"El Page Item {item!r} no es válido.", location=location)
-        data_type = str(entry.get("type", "VARCHAR2")).strip().upper()
+        data_type = _text_value(
+            entry, "type", location=location, diagnostics=diagnostics, default="VARCHAR2"
+        ).strip().upper()
         if data_type not in ALLOWED_TYPES:
             diagnostics.error("PROJECT-014", f"Tipo de bind no admitido: {data_type}.", location=location)
         format_mask = entry.get("format_mask", entry.get("format"))
+        if format_mask is not None and not isinstance(format_mask, str):
+            diagnostics.error("PROJECT-103", "format_mask debe ser texto JSON.", location=location)
+            format_mask = None
         if data_type in {"DATE", "TIMESTAMP"} and (not isinstance(format_mask, str) or not format_mask.strip()):
             diagnostics.error("PROJECT-015", f"El bind {name} requiere format_mask.", location=location)
         required = entry.get("required", False)
@@ -201,7 +274,12 @@ def _validate_fields(
         if not isinstance(entry, dict):
             diagnostics.error("PROJECT-031", "Cada campo debe ser un objeto JSON.", location=location)
             continue
-        name = normalize_identifier(str(entry.get("name", "")), label="El campo", diagnostics=diagnostics, location=location)
+        name = normalize_identifier(
+            _text_value(entry, "name", location=location, diagnostics=diagnostics),
+            label="El campo",
+            diagnostics=diagnostics,
+            location=location,
+        )
         if name is None:
             continue
         if name in {"REPORT_TITLE", "APP_USER", "GENERATED_AT"}:
@@ -211,7 +289,7 @@ def _validate_fields(
             diagnostics.error("PROJECT-033", f"El campo {name} está duplicado.", location=location)
             continue
         seen.add(name)
-        source = str(entry.get("source", "")).strip().upper()
+        source = _text_value(entry, "source", location=location, diagnostics=diagnostics).strip().upper()
         if source not in {"ITEM", "CONTEXT", "SYSTEM", "CONSTANT"}:
             diagnostics.error("PROJECT-034", f"Origen de campo no admitido: {source!r}.", location=location)
             continue
@@ -230,16 +308,20 @@ def _validate_fields(
         )
         normalized: dict[str, Any] = {"name": name, "source": source}
         if source == "ITEM":
-            item = str(entry.get("item", "")).strip().upper()
+            item = _text_value(entry, "item", location=location, diagnostics=diagnostics).strip().upper()
             if len(item) > 128 or not ITEM_PATTERN.fullmatch(item):
                 diagnostics.error("PROJECT-035", f"El Page Item {item!r} no es válido.", location=location)
-            data_type = str(entry.get("type", "VARCHAR2")).strip().upper()
+            data_type = _text_value(
+                entry, "type", location=location, diagnostics=diagnostics, default="VARCHAR2"
+            ).strip().upper()
             if data_type not in ALLOWED_TYPES:
                 diagnostics.error("PROJECT-036", f"Tipo de campo no admitido: {data_type}.", location=location)
             normalized.update(item=item, type=data_type)
             format_mask = entry.get("format_mask", entry.get("format"))
+            if format_mask is not None and not isinstance(format_mask, str):
+                diagnostics.error("PROJECT-103", "format_mask debe ser texto JSON.", location=location)
+                format_mask = None
             if format_mask:
-                format_mask = str(format_mask)
                 _validate_varchar_text(
                     format_mask,
                     maximum_bytes=4000,
@@ -249,17 +331,19 @@ def _validate_fields(
                 )
                 normalized["format_mask"] = format_mask
         elif source == "CONTEXT":
-            key = str(entry.get("key", "")).strip().upper()
+            key = _text_value(entry, "key", location=location, diagnostics=diagnostics).strip().upper()
             if key not in {"APP_USER", "APP_ID", "APP_PAGE_ID"}:
                 diagnostics.error("PROJECT-037", f"Contexto no admitido: {key!r}.", location=location)
             normalized["key"] = key
         elif source == "SYSTEM":
-            key = str(entry.get("key", "")).strip().upper()
+            key = _text_value(entry, "key", location=location, diagnostics=diagnostics).strip().upper()
             if key != "GENERATED_AT":
                 diagnostics.error("PROJECT-038", f"Campo de sistema no admitido: {key!r}.", location=location)
             normalized["key"] = key
-            if entry.get("format"):
-                system_format = str(entry["format"])
+            if entry.get("format") is not None and not isinstance(entry.get("format"), str):
+                diagnostics.error("PROJECT-103", "format debe ser texto JSON.", location=location)
+            elif entry.get("format"):
+                system_format = entry["format"]
                 _validate_varchar_text(
                     system_format,
                     maximum_bytes=4000,
@@ -299,7 +383,10 @@ def _validate_fields(
 def _validate_item_name(raw: object, label: str, diagnostics: Diagnostics) -> str | None:
     if raw is None:
         return None
-    value = str(raw).strip().upper()
+    if not isinstance(raw, str):
+        diagnostics.error("PROJECT-103", f"{label} debe ser texto JSON.")
+        return None
+    value = raw.strip().upper()
     if len(value) > 128 or not ITEM_PATTERN.fullmatch(value):
         diagnostics.error("PROJECT-075", f"{label} no es un Page Item válido: {value!r}.")
         return None
@@ -322,6 +409,13 @@ def _validate_style_overrides(raw: object, diagnostics: Diagnostics) -> dict[str
     unknown = sorted(set(raw) - allowed_zones)
     for name in unknown:
         diagnostics.error("PROJECT-081", f"Zona de estilo no admitida: {name!r}.")
+    if "header" in raw and "title" in raw:
+        diagnostics.error(
+            "PROJECT-107",
+            "Use solo style_overrides.title; 'header' es un alias obsoleto de la misma zona.",
+        )
+    elif "header" in raw:
+        diagnostics.warning("PROJECT-108", "style_overrides.header está obsoleto; use 'title'.")
     result: dict[str, Any] = {}
     for zone, value in raw.items():
         normalized_zone = "title" if zone == "header" else zone
@@ -329,13 +423,29 @@ def _validate_style_overrides(raw: object, diagnostics: Diagnostics) -> dict[str
             if zone in allowed_zones:
                 diagnostics.error("PROJECT-082", f"El estilo {zone} debe ser un objeto.")
             continue
-        allowed = {"font_family", "font_size", "font_weight", "font_color", "alignment", "background_color"}
-        if normalized_zone == "border":
-            allowed = {"width", "color"}
+        # Mismas claves por zona que PARSE_STYLE en el package: título y pie no
+        # tienen fondo, y la alineación del cuerpo es por columna.
+        allowed_by_zone = {
+            "title": {"font_family", "font_size", "font_weight", "font_color", "alignment"},
+            "footer": {"font_family", "font_size", "font_weight", "font_color", "alignment"},
+            "table_header": {"font_family", "font_size", "font_weight", "font_color", "alignment", "background_color"},
+            "table_body": {"font_family", "font_size", "font_weight", "font_color", "background_color"},
+            "border": {"width", "color"},
+        }
+        allowed = allowed_by_zone[normalized_zone]
         clean: dict[str, Any] = {}
         for key, item in value.items():
+            if normalized_zone == "table_body" and key == "alignment":
+                diagnostics.warning(
+                    "PROJECT-109",
+                    "style_overrides.table_body.alignment no tiene efecto y se ignora; use 'columns'.",
+                )
+                continue
             if key not in allowed:
                 diagnostics.error("PROJECT-083", f"Propiedad no admitida en {zone}: {key!r}.")
+                continue
+            if key not in {"font_size", "width"} and not isinstance(item, str):
+                diagnostics.error("PROJECT-103", f"{zone}.{key} debe ser texto JSON.")
                 continue
             if key in {"font_color", "background_color", "color"}:
                 color = str(item).strip().upper()
@@ -404,7 +514,10 @@ def _validate_column_options(
         diagnostics.error("PROJECT-040", "'excluded_columns' debe ser un array.")
     else:
         for value in raw_excluded:
-            name = str(value).strip().upper()
+            if not isinstance(value, str):
+                diagnostics.error("PROJECT-041", f"Exclusión inválida: {value!r}.")
+                continue
+            name = value.strip().upper()
             if not IDENTIFIER_PATTERN.fullmatch(name):
                 diagnostics.error("PROJECT-041", f"Exclusión inválida: {value!r}.")
             elif name not in name_set:
@@ -433,7 +546,7 @@ def _validate_column_options(
                 code="PROJECT-096",
                 diagnostics=diagnostics,
             )
-            name = str(entry.get("name", "")).strip().upper()
+            name = _text_value(entry, "name", location=location, diagnostics=diagnostics).strip().upper()
             if name not in name_set:
                 diagnostics.error("PROJECT-046", f"La columna {name!r} no existe en la plantilla.", location=location)
                 continue
@@ -443,7 +556,7 @@ def _validate_column_options(
             seen_overrides.add(name)
             normalized: dict[str, Any] = {"name": name}
             if "alignment" in entry:
-                alignment = str(entry["alignment"]).strip().upper()
+                alignment = _text_value(entry, "alignment", location=location, diagnostics=diagnostics).strip().upper()
                 if alignment not in ALLOWED_ALIGNMENTS:
                     diagnostics.error("PROJECT-048", f"Alineación no admitida: {alignment}.", location=location)
                 normalized["alignment"] = alignment
@@ -482,7 +595,7 @@ def _validate_column_options(
                 code="PROJECT-097",
                 diagnostics=diagnostics,
             )
-            name = str(entry.get("column", "")).strip().upper()
+            name = _text_value(entry, "column", location=location, diagnostics=diagnostics).strip().upper()
             if name not in name_set:
                 diagnostics.error("PROJECT-052", f"La columna {name!r} no existe en la plantilla.", location=location)
                 continue
@@ -490,7 +603,7 @@ def _validate_column_options(
                 diagnostics.error("PROJECT-053", f"La columna {name} tiene un ancho duplicado.", location=location)
                 continue
             seen_widths.add(name)
-            mode = str(entry.get("mode", "")).strip().upper()
+            mode = _text_value(entry, "mode", location=location, diagnostics=diagnostics).strip().upper()
             if mode not in {"FIXED_PERCENT", "WEIGHT", "AUTO"}:
                 diagnostics.error(
                     "PROJECT-054",
@@ -517,8 +630,12 @@ def _validate_column_options(
                     continue
                 if mode == "FIXED_PERCENT" and not 1 <= numeric <= 95:
                     diagnostics.error("PROJECT-057", "FIXED_PERCENT debe estar entre 1 y 95.", location=location)
-                if mode == "WEIGHT" and numeric <= 0:
-                    diagnostics.error("PROJECT-058", "WEIGHT debe ser mayor que cero.", location=location)
+                if mode == "WEIGHT" and not 0 < numeric <= MAX_WEIGHT:
+                    diagnostics.error(
+                        "PROJECT-058",
+                        f"WEIGHT debe ser mayor que cero y no superar {MAX_WEIGHT}.",
+                        location=location,
+                    )
                 if mode == "FIXED_PERCENT" and is_visible:
                     fixed_total += numeric
                 normalized["value"] = numeric
@@ -557,13 +674,28 @@ def load_project(
     schema = raw.get("schema")
     if schema != PROJECT_SCHEMA:
         diagnostics.error("PROJECT-070", f"Esquema no compatible: {schema!r}; se esperaba {PROJECT_SCHEMA!r}.")
-    report_id = normalize_identifier(str(raw.get("report_id", "")), label="report_id", diagnostics=diagnostics) or "INVALID"
-    title = str(raw.get("title", "")).strip()
+    report_id = normalize_identifier(
+        _text_value(raw, "report_id", location="report_id", diagnostics=diagnostics),
+        label="report_id",
+        diagnostics=diagnostics,
+    ) or "INVALID"
+    title = _text_value(raw, "title", location="title", diagnostics=diagnostics).strip()
     if not title:
         diagnostics.error("PROJECT-071", "El título del reporte no puede estar vacío.")
-    elif len(title) > 255:
-        diagnostics.error("PROJECT-100", "El título del reporte no puede superar 255 caracteres.")
-    file_name = str(raw.get("file_name", report_id.lower())).strip()
+    elif _utf8_length(title) > 255:
+        diagnostics.error("PROJECT-100", "El título del reporte no puede superar 255 bytes UTF-8.")
+    else:
+        # El encabezado final (texto fijo + título) debe caber en 4000 bytes;
+        # los campos variables se comprueban de nuevo en ejecución.
+        static_header = re.sub(r"\{\{.*?\}\}", "", template.header_template, flags=re.DOTALL)
+        if _utf8_length(static_header) + _utf8_length(title) > 4000:
+            diagnostics.error(
+                "PROJECT-104",
+                "El encabezado con el título sustituido supera 4000 bytes UTF-8.",
+            )
+    file_name = _text_value(
+        raw, "file_name", location="file_name", diagnostics=diagnostics, default=report_id.lower()
+    ).strip()
     sanitized = re.sub(r"[^A-Za-z0-9_-]+", "_", file_name).strip("_")
     if not sanitized or sanitized != file_name:
         diagnostics.error("PROJECT-072", "file_name solo admite letras, números, _ y -.")
@@ -574,14 +706,30 @@ def load_project(
         diagnostics.error("PROJECT-073", "max_rows debe ser un entero entre 1 y 100000.")
         max_rows = 1000
     orientation_value = raw.get("orientation")
-    orientation = str(orientation_value).strip().upper() if orientation_value is not None else None
+    orientation = (
+        _text_value(raw, "orientation", location="orientation", diagnostics=diagnostics).strip().upper() or None
+        if orientation_value is not None
+        else None
+    )
     if orientation is not None and orientation not in ALLOWED_ORIENTATIONS:
         diagnostics.error("PROJECT-074", "orientation debe ser AUTO, PORTRAIT o LANDSCAPE.")
         orientation = None
+    elif orientation in {"PORTRAIT", "LANDSCAPE"} and orientation != template.template_orientation:
+        diagnostics.warning(
+            "PROJECT-102",
+            f"orientation={orientation} sustituye la orientación {template.template_orientation} del DOCX.",
+            suggestion="Alinee la página de Word con el proyecto o use AUTO.",
+        )
 
     format_item = _validate_item_name(raw.get("format_item"), "format_item", diagnostics)
     orientation_item = _validate_item_name(raw.get("orientation_item"), "orientation_item", diagnostics)
 
+    for preferred, alias in (("bindings", "binds"), ("excluded_columns", "exclude_columns")):
+        if preferred in raw and alias in raw:
+            diagnostics.error(
+                "PROJECT-105",
+                f"Use solo {preferred!r}; {alias!r} es un alias obsoleto de la misma propiedad.",
+            )
     raw_bindings = raw.get("bindings")
     if raw_bindings is None and "binds" in raw:
         diagnostics.warning("PROJECT-078", "'binds' está obsoleto; use 'bindings'.")

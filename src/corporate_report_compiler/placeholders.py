@@ -35,16 +35,24 @@ def validate_text_placeholders(
     fields: list[str] = []
     for match in ANY_PLACEHOLDER_PATTERN.finditer(text):
         raw = match.group(0)
-        inner = match.group(1).strip()
+        # El package solo recorta espacios ASCII (TRIM); un NBSP o tabulador
+        # dentro de las llaves debe rechazarse aquí igual que en ejecución.
+        inner = match.group(1).strip(" ")
         upper = inner.upper()
         if upper in BUILTINS:
             if upper not in allowed_kinds:
                 diagnostics.error("TOKEN-002", f"El marcador {raw} no está permitido aquí.", location=location)
             continue
-        field_match = re.fullmatch(r"FIELD\s*:\s*([A-Z][A-Z0-9_$#]{0,29})", upper)
+        field_match = re.fullmatch(r"FIELD *: *([A-Z][A-Z0-9_$#]{0,29})", upper)
         if field_match:
             if "FIELD" not in allowed_kinds:
                 diagnostics.error("TOKEN-002", f"El marcador {raw} no está permitido aquí.", location=location)
+            elif field_match.group(1).upper() in BUILTINS:
+                diagnostics.error(
+                    "TOKEN-005",
+                    f"{raw} usa un nombre reservado; escriba {{{{{field_match.group(1).upper()}}}}} sin FIELD:.",
+                    location=location,
+                )
             else:
                 fields.append(field_match.group(1).upper())
             continue

@@ -52,7 +52,60 @@ PROHIBITED_TAGS = {
     "moveFrom": "cambio controlado pendiente",
     "moveTo": "cambio controlado pendiente",
     "txbxContent": "cuadro de texto",
+    # Envoltorios cuyo texto Word muestra pero python-docx no expone en
+    # ``Paragraph.text``: aceptarlos haría que la salida difiera del diseño.
+    "smartTag": "etiqueta inteligente de Word",
+    "customXml": "XML personalizado en línea",
+    "dir": "bloque de dirección de texto",
+    "bdo": "bloque de dirección de texto",
+    "ruby": "texto ruby",
+    # Revisiones de formato pendientes.
+    "rPrChange": "cambio controlado pendiente",
+    "pPrChange": "cambio controlado pendiente",
+    "sectPrChange": "cambio controlado pendiente",
+    "tblPrChange": "cambio controlado pendiente",
+    "tblPrExChange": "cambio controlado pendiente",
+    "trPrChange": "cambio controlado pendiente",
+    "tcPrChange": "cambio controlado pendiente",
+    "tblGridChange": "cambio controlado pendiente",
+    "numberingChange": "cambio controlado pendiente",
+    "cellIns": "cambio controlado pendiente",
+    "cellDel": "cambio controlado pendiente",
+    "cellMerge": "cambio controlado pendiente",
+    "moveFromRangeStart": "cambio controlado pendiente",
+    "moveToRangeStart": "cambio controlado pendiente",
+    # Notas y comentarios.
+    "footnoteReference": "nota al pie",
+    "endnoteReference": "nota al final",
+    "commentReference": "comentario",
+    "commentRangeStart": "comentario",
+    "commentRangeEnd": "comentario",
+    # Texto oculto: Word no lo muestra, pero llegaría al reporte APEX.
+    "vanish": "texto oculto",
+    "specVanish": "texto oculto",
+    "webHidden": "texto oculto",
+    # Contenido visible en Word que python-docx no incluye en el texto.
+    "sym": "símbolo insertado",
+    "pgNum": "número de página de Word",
+    "subDoc": "subdocumento",
 }
+HIDDEN_TEXT_TAGS = {"vanish", "specVanish", "webHidden"}
+FALSE_VALUES = {"0", "false", "off"}
+MC_ALTERNATE_CONTENT = "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent"
+MATH_NAMESPACE = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
+MARKERS = {
+    qn("w:bookmarkStart"),
+    qn("w:bookmarkEnd"),
+    qn("w:proofErr"),
+    qn("w:permStart"),
+    qn("w:permEnd"),
+}
+ALLOWED_BODY_CHILDREN = {qn("w:p"), qn("w:tbl"), qn("w:sectPr"), *MARKERS}
+ALLOWED_HEADER_FOOTER_CHILDREN = {qn("w:p"), *MARKERS}
+
+
+def _utf8_length(value: str) -> int:
+    return len(value.encode("utf-8"))
 
 
 def _alignment(value: object, default: str | None = "START") -> str | None:
@@ -297,6 +350,13 @@ def _column_weights(table: object, count: int) -> list[float]:
 
 
 def _validate_a4(section: object, diagnostics: Diagnostics) -> None:
+    if section.page_width is None or section.page_height is None:
+        diagnostics.error(
+            "DOCX-STYLE-010",
+            "La plantilla debe declarar un tamaño de página A4.",
+            location="Configuración de página",
+        )
+        return
     width = float(section.page_width.inches)
     height = float(section.page_height.inches)
     short, long = sorted((width, height))
@@ -313,10 +373,34 @@ def _scan_prohibited_elements(document: object, diagnostics: Diagnostics) -> Non
     roots: list[object] = [document.element]
     for section in document.sections:
         roots.extend([section.header._element, section.footer._element])
+    # Un estilo con texto oculto lo aplica a todo párrafo que lo use.
+    roots.append(document.styles.element)
+    reported: set[str] = set()
     for root in roots:
         for local_name, label in PROHIBITED_TAGS.items():
-            if any(True for _ in root.iter(qn(f"w:{local_name}"))):
+            if label in reported:
+                continue
+            elements = root.iter(qn(f"w:{local_name}"))
+            if local_name in HIDDEN_TEXT_TAGS:
+                # <w:vanish w:val="0"/> desactiva el texto oculto heredado.
+                elements = (
+                    element for element in elements
+                    if (element.get(qn("w:val")) or "true").casefold() not in FALSE_VALUES
+                )
+            if any(True for _ in elements):
+                reported.add(label)
                 diagnostics.error("OOXML-020", f"La plantilla contiene {label}, que no está permitido.")
+        if "ecuación" not in reported and any(
+            str(element.tag).startswith(MATH_NAMESPACE) for element in root.iter()
+        ):
+            reported.add("ecuación")
+            diagnostics.error("OOXML-020", "La plantilla contiene una ecuación, que no está permitida.")
+        if "contenido alternativo" not in reported and any(True for _ in root.iter(MC_ALTERNATE_CONTENT)):
+            reported.add("contenido alternativo")
+            diagnostics.error(
+                "OOXML-020",
+                "La plantilla contiene contenido alternativo de compatibilidad, que no está permitido.",
+            )
 
 
 def read_template(path: Path, diagnostics: Diagnostics) -> TemplateModel | None:
@@ -329,21 +413,47 @@ def read_template(path: Path, diagnostics: Diagnostics) -> TemplateModel | None:
         diagnostics.error("DOCX-STRUCT-001", f"Word no pudo interpretar la plantilla: {exc}", location=str(path))
         return None
 
-    _scan_prohibited_elements(document, diagnostics)
+    try:
+        _scan_prohibited_elements(document, diagnostics)
+        settings = document.settings.element
+    except AttributeError:
+        diagnostics.error(
+            "OOXML-003",
+            "Las partes de estilos o configuración del documento no tienen el tipo esperado.",
+            location=str(path),
+        )
+        return None
     if len(document.sections) != 1:
         diagnostics.error("DOCX-STRUCT-002", "La plantilla debe contener una sola sección de Word.")
         return None
     section = document.sections[0]
     if section.different_first_page_header_footer:
         diagnostics.error("DOCX-STRUCT-003", "No se admite un encabezado o footer diferente en la primera página.")
-    settings = document.settings.element
     if settings.find(qn("w:evenAndOddHeaders")) is not None:
         diagnostics.error("DOCX-STRUCT-004", "No se admiten encabezados o footers diferentes para páginas pares.")
+    for label, part in (("encabezado", section.header), ("pie", section.footer)):
+        for child in part._element.iterchildren():
+            if child.tag not in ALLOWED_HEADER_FOOTER_CHILDREN:
+                diagnostics.error(
+                    "DOCX-STRUCT-012",
+                    f"El {label} de Word contiene una estructura no admitida (por ejemplo, una tabla).",
+                    location=str(child.tag).rsplit("}", 1)[-1],
+                )
+                return None
     if any(paragraph.text.strip() for paragraph in section.header.paragraphs):
         diagnostics.error(
             "DOCX-STRUCT-005",
             "Use el párrafo anterior a la tabla para el encabezado; el encabezado real de Word debe estar vacío.",
         )
+
+    for child in document.element.body.iterchildren():
+        if child.tag not in ALLOWED_BODY_CHILDREN:
+            diagnostics.error(
+                "DOCX-STRUCT-012",
+                "El cuerpo del documento contiene una estructura no admitida.",
+                location=str(child.tag).rsplit("}", 1)[-1],
+            )
+            return None
 
     body_items: list[tuple[str, object]] = []
     for child in document.element.body.iterchildren():
@@ -369,10 +479,10 @@ def read_template(path: Path, diagnostics: Diagnostics) -> TemplateModel | None:
     if after:
         diagnostics.error("DOCX-STRUCT-008", "No se permite contenido libre después de la tabla.")
     header = before[0]
-    if len(header.text) > 4000:
+    if _utf8_length(header.text) > 4000:
         diagnostics.error(
             "DOCX-STRUCT-010",
-            "El encabezado no puede superar 4000 caracteres antes de sustituir campos.",
+            "El encabezado no puede superar 4000 bytes UTF-8 antes de sustituir campos.",
         )
     if header.text.upper().count("{{REPORT_TITLE}}") != 1:
         diagnostics.error(
@@ -441,10 +551,10 @@ def read_template(path: Path, diagnostics: Diagnostics) -> TemplateModel | None:
             continue
         names.add(name)
         heading = header_paragraph.text.strip()
-        if len(heading) > 255:
+        if _utf8_length(heading) > 255:
             diagnostics.error(
                 "DOCX-TABLE-009",
-                "La etiqueta del encabezado no puede superar 255 caracteres.",
+                "La etiqueta del encabezado no puede superar 255 bytes UTF-8.",
                 location=header_location,
             )
         header_style = _paragraph_style(
@@ -536,10 +646,10 @@ def read_template(path: Path, diagnostics: Diagnostics) -> TemplateModel | None:
     if len(nonempty_footer) > 1:
         diagnostics.error("DOCX-STRUCT-009", "El footer debe contener un solo párrafo con contenido.")
     footer = nonempty_footer[0] if nonempty_footer else footer_paragraphs[0]
-    if len(footer.text) > 4000:
+    if _utf8_length(footer.text) > 4000:
         diagnostics.error(
             "DOCX-STRUCT-011",
-            "El pie no puede superar 4000 caracteres antes de sustituir campos.",
+            "El pie no puede superar 4000 bytes UTF-8 antes de sustituir campos.",
         )
     footer_fields = validate_text_placeholders(
         footer.text,
@@ -569,7 +679,14 @@ def read_template(path: Path, diagnostics: Diagnostics) -> TemplateModel | None:
         maximum_size=12,
     )
     border_width, border_color = _table_border(table, diagnostics)
-    orientation = "LANDSCAPE" if section.orientation == WD_ORIENT.LANDSCAPE else "PORTRAIT"
+    # Word puede guardar una página horizontal solo con sus dimensiones, sin
+    # ``w:orient``; ambas formas deben producir la misma orientación.
+    landscape = section.orientation == WD_ORIENT.LANDSCAPE or (
+        section.page_width is not None
+        and section.page_height is not None
+        and section.page_width > section.page_height
+    )
+    orientation = "LANDSCAPE" if landscape else "PORTRAIT"
     fields = tuple(dict.fromkeys((*header_fields, *footer_fields)))
     _validate_a4(section, diagnostics)
 

@@ -315,7 +315,13 @@ def rewrite_zip(
                 data = replacements.get(info.filename, source_zip.read(info.filename))
                 target_zip.writestr(info, data)
             for name, data in additions.items():
-                target_zip.writestr(name, data)
+                # ``ZipInfo(name)`` convierte ``os.sep`` en ``/`` en Windows;
+                # se asigna el nombre después para conservar bytes hostiles
+                # como ``word\evil.xml`` en todas las plataformas.
+                info = zipfile.ZipInfo("placeholder")
+                info.filename = name
+                info.compress_type = zipfile.ZIP_DEFLATED
+                target_zip.writestr(info, data)
     return destination
 
 

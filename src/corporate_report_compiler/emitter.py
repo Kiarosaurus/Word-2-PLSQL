@@ -123,9 +123,27 @@ def oracle_q_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _literal_parts(chunk: str) -> list[str]:
+    """Literales de un fragmento sin ``&`` crudo.
+
+    APEX aplica sustituciones ``&ITEM.`` al código del proceso antes de
+    ejecutarlo. Emitir cada ``&`` como ``chr(38)`` garantiza que ningún valor
+    de sesión se incruste en el SQL, títulos o JSON generados.
+    """
+
+    pieces = chunk.split("&")
+    parts: list[str] = []
+    for index, piece in enumerate(pieces):
+        if index:
+            parts.append("chr(38)")
+        if piece or len(pieces) == 1:
+            parts.append(oracle_q_literal(piece))
+    return parts
+
+
 def oracle_expression(value: str, *, clob: bool) -> str:
     chunks = _utf8_chunks(value)
-    literals = [oracle_q_literal(chunk) for chunk in chunks]
+    literals = [part for chunk in chunks for part in _literal_parts(chunk)]
     if not clob:
         return " ||\n        ".join(literals)
     return " ||\n        ".join(

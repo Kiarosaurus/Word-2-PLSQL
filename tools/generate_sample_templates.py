@@ -2,13 +2,13 @@
 """Genera las plantillas DOCX de referencia del compilador.
 
 Las plantillas resultantes implementan únicamente el lenguaje restringido de
-``docs/CONTRACT.md``. No contienen imágenes, campos de Word, macros, formas ni
+``docs/CONTRACT.docx``. No contienen imágenes, campos de Word, macros, formas ni
 contenido ejecutable.
 
 Uso::
 
     python tools/generate_sample_templates.py
-    python tools/generate_sample_templates.py --output-dir examples/templates
+    python tools/generate_sample_templates.py --output-dir build/qa/templates
 
 El script fija los metadatos y las marcas de tiempo del contenedor ZIP para que
 la salida sea reproducible entre ejecuciones con la misma versión de
@@ -38,7 +38,7 @@ from docx.shared import Cm, Pt, RGBColor
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "examples" / "templates"
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "templates"
 FIXED_TIMESTAMP = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
 ZIP_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"

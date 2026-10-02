@@ -1,0 +1,46 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+
+# Compiler output (regenerable); examples/build_expected stays tracked
+examples/compiled/
+
+# Windows shortcuts (absolute, machine-specific paths)
+*.lnk
+
+# Office lock / temp files
+~$*
+*.tmp
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editors / IDE
+.vscode/
+.idea/
+
+# Claude Code local state
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

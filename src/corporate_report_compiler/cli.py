@@ -87,7 +87,24 @@ def _exit_code(result: CompilationResult) -> int:
     return 1
 
 
+def _configure_streams() -> None:
+    """Evita fallos de codificación al redirigir la salida en Windows.
+
+    Con una tubería, Python usa la página ANSI (cp1252) y un carácter fuera de
+    ella interrumpía la CLI después de escribir los artefactos.
+    """
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="backslashreplace")
+            except (OSError, ValueError):
+                pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _configure_streams()
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:
