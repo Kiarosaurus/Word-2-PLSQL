@@ -5,7 +5,7 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 SET DEFINE OFF
 SET SERVEROUTPUT ON
 
-PROMPT Instalando PKG_CORPORATE_REPORTS versión 8 (compilador 1.0.0)...
+PROMPT Instalando PKG_CORPORATE_REPORTS (compilador 1.0.0)...
 @@pkg_corporate_reports.sql
 
 SHOW ERRORS PACKAGE pkg_corporate_reports

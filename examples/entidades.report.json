@@ -30,7 +30,13 @@
       "required": false
     }
   ],
-  "fields": [],
+  "fields": [
+    {
+      "name": "UNIDAD",
+      "source": "CONSTANT",
+      "value": "Oficina de Informática"
+    }
+  ],
   "excluded_columns": [],
   "column_widths": [
     {

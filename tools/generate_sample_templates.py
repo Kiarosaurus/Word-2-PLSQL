@@ -222,13 +222,21 @@ def _configure_document(document: Document, spec: TemplateSpec) -> None:
     section.footer_distance = Cm(0.8)
 
     # El header real permanece vacío. APEX_DATA_EXPORT usa el único párrafo
-    # previo a la tabla como encabezado textual del reporte.
+    # previo a la tabla como encabezado textual del reporte. La plantilla de
+    # referencia usa los cinco tipos de marcador: REPORT_TITLE y FIELD aquí,
+    # COLUMN en la tabla, APP_USER y GENERATED_AT en el footer.
     title = document.add_paragraph(style="Title")
     _remove_title_border(document, title)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title.paragraph_format.space_after = Pt(10)
-    title_run = title.add_run("{{REPORT_TITLE}}")
-    _set_run_style(title_run, size_pt=15, bold=True, color="2F343A")
+    # Un salto de línea manual (no un segundo párrafo) mantiene el único
+    # párrafo de encabezado; ambas líneas comparten el mismo estilo.
+    for index, text in enumerate(("{{REPORT_TITLE}}", "Unidad: {{FIELD:UNIDAD}}")):
+        title_run = title.add_run()
+        if index:
+            title_run.add_break()
+        title_run.add_text(text)
+        _set_run_style(title_run, size_pt=15, bold=True, color="2F343A")
 
     table = document.add_table(rows=2, cols=len(spec.columns))
     table.alignment = WD_TABLE_ALIGNMENT.CENTER

@@ -117,7 +117,7 @@ def build_apex_guide(result: CompilationResult) -> str:
         "   Dónde: SQL Workshop > SQL Scripts > Upload > Run, conectado al parsing",
         "   schema de la aplicación (o @sql/install.sql desde SQLcl/SQL*Plus).",
         "   Verifique: PKG_CORPORATE_REPORTS y su body en estado VALID y sin filas en",
-        "   USER_ERRORS. Si ya instaló este mismo archivo (versión 8), omita este paso.",
+        "   USER_ERRORS. Si ya instaló este mismo archivo, omita este paso.",
         "",
         "2. Page Items que debe crear en la página (Page Designer > Items):",
     ]

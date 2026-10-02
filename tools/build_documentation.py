@@ -1,4 +1,18 @@
-"""Convierte documentación Markdown en documentos Word con el estilo corporativo."""
+"""Convierte documentación Markdown en documentos Word con el estilo corporativo.
+
+Las fuentes viven en ``tools/doc_sources``. Además del Markdown habitual
+(títulos, listas, tablas y bloques de código) se admite un bloque de diagrama
+de flujo que se dibuja con tablas nativas de Word, sin imágenes::
+
+    ```flujo
+    # Leyenda opcional del diagrama
+    Actor | Paso | Detalle opcional
+    ? Actor | ¿Pregunta de decisión? | Sí: continúa · No: vuelve al paso 1
+    ```
+
+Cada línea es una caja; entre cajas consecutivas se dibuja una flecha. Una
+línea que empieza con ``?`` se dibuja como decisión.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +35,10 @@ SLATE = "4A5563"
 LIGHT = "E8EDF2"
 PALE = "F5F7F9"
 WHITE = "FFFFFF"
+AMBER = "B7791F"
+AMBER_PALE = "FDF3E1"
 TEXT = RGBColor(37, 43, 49)
+SOURCES = ROOT / "tools" / "doc_sources"
 
 
 def shade(cell, color: str) -> None:
@@ -162,6 +179,137 @@ def add_code_block(document: Document, lines: list[str]) -> None:
         add_inline(p, line, code=True)
 
 
+def set_cell_borders(cell, color: str | None, *, size: int = 8, style: str = "single") -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    borders = tc_pr.find(qn("w:tcBorders"))
+    if borders is None:
+        borders = OxmlElement("w:tcBorders")
+        tc_pr.append(borders)
+    for edge in ("top", "left", "bottom", "right"):
+        node = borders.find(qn(f"w:{edge}"))
+        if node is None:
+            node = OxmlElement(f"w:{edge}")
+            borders.append(node)
+        if color is None:
+            node.set(qn("w:val"), "nil")
+        else:
+            node.set(qn("w:val"), style)
+            node.set(qn("w:sz"), str(size))
+            node.set(qn("w:space"), "0")
+            node.set(qn("w:color"), color)
+
+
+def set_table_borders_none(table) -> None:
+    tbl_pr = table._tbl.tblPr
+    borders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        node = OxmlElement(f"w:{edge}")
+        node.set(qn("w:val"), "nil")
+        borders.append(node)
+    tbl_pr.append(borders)
+
+
+def add_flow(document: Document, lines: list[str]) -> None:
+    """Dibuja un diagrama de flujo vertical: columna de actor + columna de cajas."""
+
+    caption = None
+    steps: list[tuple[bool, str, str, str]] = []
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            caption = line.lstrip("#").strip()
+            continue
+        decision = line.startswith("?")
+        parts = [part.strip() for part in line.lstrip("?").split("|")]
+        if len(parts) == 1:
+            parts = ["", parts[0]]
+        actor, title, detail = (parts + [""])[:3]
+        steps.append((decision, actor, title, detail))
+    if not steps:
+        return
+
+    table = document.add_table(rows=len(steps) * 2 - 1, cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+    set_table_borders_none(table)
+    widths = (Cm(3.3), Cm(11.2))
+    for row in table.rows:
+        prevent_row_split(row)
+        for index, width in enumerate(widths):
+            row.cells[index].width = width
+
+    for position, (decision, actor, title, detail) in enumerate(steps):
+        row = table.rows[position * 2]
+        actor_cell, box = row.cells
+        actor_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        set_cell_margins(actor_cell, 40, 60, 40, 140)
+        p = actor_cell.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        p.paragraph_format.space_after = Pt(0)
+        run = p.add_run(actor.upper())
+        run.font.name = "Aptos"
+        run.font.size = Pt(7)
+        run.bold = True
+        run.font.color.rgb = RGBColor.from_string(AMBER if decision else SLATE)
+
+        box.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        shade(box, AMBER_PALE if decision else LIGHT)
+        set_cell_borders(box, AMBER if decision else NAVY, size=10 if decision else 8,
+                         style="dashed" if decision else "single")
+        set_cell_margins(box, 70, 140, 70, 140)
+        p = box.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_after = Pt(0)
+        add_inline(p, ("◆ " if decision else "") + title)
+        for item in p.runs:
+            item.bold = True
+            item.font.size = Pt(8.8)
+            if item.font.name != "Consolas":
+                item.font.color.rgb = RGBColor.from_string(AMBER if decision else NAVY)
+        if detail:
+            d = box.add_paragraph()
+            d.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            d.paragraph_format.space_after = Pt(0)
+            add_inline(d, detail)
+            for item in d.runs:
+                item.font.size = Pt(7.8)
+
+        if position < len(steps) - 1:
+            arrow_row = table.rows[position * 2 + 1]
+            arrow = arrow_row.cells[1].paragraphs[0]
+            arrow.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            arrow.paragraph_format.space_after = Pt(0)
+            arrow.paragraph_format.line_spacing = 0.9
+            run = arrow.add_run("▼")
+            run.font.size = Pt(9)
+            run.font.color.rgb = RGBColor.from_string(SLATE)
+            if decision:
+                # La flecha que sale de una decisión es la rama afirmativa;
+                # la negativa se describe en el detalle de la caja.
+                label = arrow.add_run("  Sí")
+                label.bold = True
+                label.font.size = Pt(7.5)
+                label.font.color.rgb = RGBColor.from_string(AMBER)
+
+    # El diagrama se mantiene completo en una página.
+    for row in table.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                paragraph.paragraph_format.keep_with_next = True
+    if caption:
+        cap = document.add_paragraph()
+        cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cap.paragraph_format.space_before = Pt(3)
+        run = cap.add_run(caption)
+        run.italic = True
+        run.font.size = Pt(8)
+        run.font.color.rgb = RGBColor.from_string(SLATE)
+    else:
+        document.add_paragraph().paragraph_format.space_after = Pt(1)
+
+
 def add_table(document: Document, rows: list[list[str]]) -> None:
     if not rows:
         return
@@ -252,6 +400,7 @@ def markdown_to_docx(source: Path, destination: Path, title: str, subtitle: str)
             index += 1
             continue
         if stripped.startswith("```"):
+            is_flow = stripped[3:].strip().lower() == "flujo"
             code_lines: list[str] = []
             fence_indent = len(raw) - len(raw.lstrip())
             index += 1
@@ -259,7 +408,10 @@ def markdown_to_docx(source: Path, destination: Path, title: str, subtitle: str)
                 line = lines[index]
                 code_lines.append(line[fence_indent:] if line[:fence_indent].isspace() else line)
                 index += 1
-            add_code_block(document, code_lines)
+            if is_flow:
+                add_flow(document, code_lines)
+            else:
+                add_code_block(document, code_lines)
             index += 1
             continue
         if stripped.startswith("|"):
@@ -320,24 +472,24 @@ def markdown_to_docx(source: Path, destination: Path, title: str, subtitle: str)
     document.save(destination)
 
 
-# (origen Markdown, destino Word, título, subtítulo)
+# (origen en tools/doc_sources, destino Word, título, subtítulo)
 DOCUMENTS = (
-    ("docs/MANUAL.md", "deliverables/Manual_de_uso.docx", "Manual de uso",
+    ("MANUAL.md", "deliverables/Manual_de_uso.docx", "Manual de uso",
      "Compilador local Word → reportes Oracle APEX 24.2"),
-    ("docs/INFORME_ALCANCE.md", "deliverables/Informe_de_alcance_y_limitaciones.docx",
+    ("INFORME_ALCANCE.md", "deliverables/Informe_de_alcance_y_limitaciones.docx",
      "Informe de alcance y limitaciones",
      "Arquitectura, seguridad y fronteras del producto · Versión 1.0"),
-    ("docs/CONTRACT.md", "docs/CONTRACT.docx", "Contrato funcional y técnico",
+    ("CONTRACT.md", "docs/CONTRACT.docx", "Contrato funcional y técnico",
      "Compilador Word restringido para reportes Oracle APEX 24.2"),
-    ("docs/TEMPLATE_QA.md", "docs/TEMPLATE_QA.docx", "Control de calidad de las plantillas",
+    ("TEMPLATE_QA.md", "docs/TEMPLATE_QA.docx", "Control de calidad de las plantillas",
      "Plantillas de referencia del contrato 1.0"),
-    ("docs/RELEASE_REVIEW.md", "docs/RELEASE_REVIEW.docx", "Revisión de liberación",
+    ("RELEASE_REVIEW.md", "docs/RELEASE_REVIEW.docx", "Revisión de liberación",
      "APEX Word Report Compiler 1.0.0"),
     ("README.md", "README.docx", "Compilador local Word → reportes Oracle APEX",
      "Guía de inicio · Versión 1.0"),
-    ("sql/README.md", "sql/README.docx", "Instalación de PKG_CORPORATE_REPORTS",
+    ("SQL_README.md", "sql/README.docx", "Instalación de PKG_CORPORATE_REPORTS",
      "Package común para Oracle APEX 24.2"),
-    ("examples/README.md", "examples/README.docx", "Ejemplo ejecutable ENTIDADES",
+    ("EXAMPLES_README.md", "examples/README.docx", "Ejemplo ejecutable ENTIDADES",
      "Proyecto completo de referencia"),
 )
 
@@ -345,7 +497,7 @@ DOCUMENTS = (
 def main(argv: list[str] | None = None) -> int:
     """Convierte Markdown a Word.
 
-    Sin argumentos convierte la lista ``DOCUMENTS`` (las fuentes que existan).
+    Sin argumentos convierte la lista ``DOCUMENTS`` desde ``tools/doc_sources``.
     Con argumentos: ``origen.md destino.docx "Título" "Subtítulo"``.
     """
 
@@ -360,8 +512,8 @@ def main(argv: list[str] | None = None) -> int:
         print(args[1])
         return 0
     for source, destination, title, subtitle in DOCUMENTS:
-        if (ROOT / source).is_file():
-            markdown_to_docx(ROOT / source, ROOT / destination, title, subtitle)
+        if (SOURCES / source).is_file():
+            markdown_to_docx(SOURCES / source, ROOT / destination, title, subtitle)
             print(destination)
     return 0
 

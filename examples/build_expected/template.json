@@ -6,11 +6,11 @@
   },
   "source": {
     "file_name": "entidades.docx",
-    "sha256": "cc7a3b375630dd005c97210dc206a95e1a2e5b5b44e6e054c3cb227e6996562e"
+    "sha256": "d70e11379d379db3f08aa9c6bdf7ba1d2991ca8c19b6e3fd27a926787235bfcd"
   },
   "report": {
     "id": "ENTIDADES",
-    "header_template": "{{REPORT_TITLE}}",
+    "header_template": "{{REPORT_TITLE}}\nUnidad: {{FIELD:UNIDAD}}",
     "title_value": "Relación de entidades",
     "footer_template": "Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}",
     "orientation": "LANDSCAPE",
@@ -41,7 +41,13 @@
       }
     ]
   },
-  "fields": [],
+  "fields": [
+    {
+      "name": "UNIDAD",
+      "source": "CONSTANT",
+      "value": "Oficina de Informática"
+    }
+  ],
   "columns": [
     {
       "name": "VDNI",
