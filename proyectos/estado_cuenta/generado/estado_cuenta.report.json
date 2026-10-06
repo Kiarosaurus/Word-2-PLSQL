@@ -5,7 +5,7 @@
   "title": "ESTADO DE CUENTA DEL ALUMNO",
   "file_name": "estado_cuenta",
   "parameters": [
-    {"name": "P_COD_ALUMNO", "item": "P70_COD_ALUMNO", "type": "VARCHAR2", "required": true}
+    {"name": "P_COD_ALUMNO", "item": "P71_COD_ALUMNO", "type": "VARCHAR2", "required": true}
   ],
   "queries": {
     "ALUMNO": "q_alumno.sql",

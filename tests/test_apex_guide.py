@@ -27,7 +27,7 @@ class ApexGuideTests(unittest.TestCase):
         self.assertTrue(result.valid)
         guide = build_apex_guide(result)
         for expected in (
-            "sql/pkg_corporate_reports.sql",
+            "sql/modo_simple/pkg_corporate_reports.sql",
             "SQL Workshop > SQL Scripts",
             str(self.root / "out" / "apex_process.sql"),
             "Execute Code",

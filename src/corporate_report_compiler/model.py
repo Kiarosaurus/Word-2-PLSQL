@@ -63,7 +63,6 @@ class ProjectModel:
     query_path: Path
     title: str
     file_name: str
-    max_rows: int
     orientation: str | None
     format_item: str | None = None
     orientation_item: str | None = None

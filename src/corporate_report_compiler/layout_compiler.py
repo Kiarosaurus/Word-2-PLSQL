@@ -9,7 +9,7 @@ Archivo de proyecto ``<nombre>.report.json`` con ``schema`` igual a
       "template": "../estado_cuenta.docx",
       "title": "Estado de cuenta del alumno",
       "file_name": "estado_cuenta",
-      "parameters": [{"name": "P_COD_ALUMNO", "item": "P70_COD_ALUMNO",
+      "parameters": [{"name": "P_COD_ALUMNO", "item": "P71_COD_ALUMNO",
                       "type": "VARCHAR2", "required": true}],
       "queries": {"ALUMNO": "q_alumno.sql", "CUOTAS": "q_cuotas.sql"},
       "constants": {"SISTEMA": "ACADEMIA DEMO"}
@@ -399,7 +399,7 @@ def build_layout_guide(result: Any) -> str:
         "=" * 38,
         "",
         "1. Una sola vez por parsing schema: el motor PDF",
-        "   sql/prototipo_pdf/install_motor.sql (o, en SQL Workshop, rpt_pdf.pks, rpt_pdf.pkb,",
+        "   sql/modo_layout/install.sql (o, en SQL Workshop, rpt_pdf.pks, rpt_pdf.pkb,",
         "   rpt_layout.pks y rpt_layout.pkb en ese orden). Deben quedar VALID.",
         "",
         "2. Package del reporte (cada vez que recompile):",

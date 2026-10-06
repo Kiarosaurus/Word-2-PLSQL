@@ -487,8 +487,8 @@ DOCUMENTS = (
      "APEX Word Report Compiler 1.0.0"),
     ("README.md", "README.docx", "Compilador local Word → reportes Oracle APEX",
      "Guía de inicio · Versión 1.0"),
-    ("SQL_README.md", "sql/README.docx", "Instalación de PKG_CORPORATE_REPORTS",
-     "Package común para Oracle APEX 24.2"),
+    ("SQL_README.md", "sql/README.docx", "Objetos de base de datos",
+     "Motores comunes del modo simple y del modo layout · Oracle APEX 24.2"),
     ("EXAMPLES_README.md", "proyectos/entidades/README.docx", "Ejemplo ejecutable ENTIDADES",
      "Proyecto completo de referencia"),
 )

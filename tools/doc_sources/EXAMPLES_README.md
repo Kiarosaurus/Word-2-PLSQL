@@ -9,6 +9,7 @@ proyectos/entidades/
   entidades.docx             <- plantilla Word (A4 horizontal, seis columnas, cinco tipos de marcador)
   apex_process.sql           <- lo único que se pega en APEX (generado al compilar)
   README.docx                <- esta documentación (solo en el proyecto de ejemplo)
+  datos_prueba.sql           <- tablas PRUEBAP_ de esta prueba (página 70)
   generado/                  <- material de trabajo que no se sube a APEX
     entidades.sql            <- consulta fuente; su texto queda incrustado en apex_process.sql
     entidades.report.json    <- binds, campos, anchos y estilos
@@ -22,7 +23,7 @@ El DOCX se utiliza solamente durante la compilación local. En APEX se instala e
 
 ## Tablas de prueba
 
-Ejecútelo conectado como el *parsing schema*. Los tipos coinciden con los binds: `vdni` es texto, `departamento_id` es número y `fecha_registro` es fecha.
+El mismo script está en `datos_prueba.sql` de esta carpeta. Ejecútelo conectado como el *parsing schema*. Los tipos coinciden con los binds: `vdni` es texto, `departamento_id` es número y `fecha_registro` es fecha.
 
 ```
 create table pruebap_departamento (
@@ -58,7 +59,7 @@ insert into pruebap_entidad values ('34567890', 'María Quispe Huamán', 'Av. de
 -- dirección larga para la columna AUTO
 insert into pruebap_entidad values ('45678901', 'Carlos Ñique', rpad('Jr. Muy Largo ', 250, 'x'), 1, null, '014445555', date '2026-09-01');
 
--- 2500 filas para probar el límite max_rows = 2000
+-- 2500 filas para probar un volumen grande (se exportan todas)
 insert into pruebap_entidad (vdni, vnom, vdirec_actual, departamento_id, distrito_id, vnro_tlf1, fecha_registro)
 select lpad(to_char(50000000 + level), 8, '0'), 'Persona ' || level, 'Dirección ' || level,
        mod(level, 3) + 1, mod(level, 3) + 1, '9' || lpad(level, 8, '0'),
@@ -185,7 +186,7 @@ Después de reemplazar, recupere desde los `.bak` lo que había editado a mano (
 # Figura 1. De este ejemplo a un reporte real
 Informática | Copiar entidades.docx con otro nombre y editarlo en Word | etiquetas, estilos y columnas; mantener los marcadores {{...}}
 Compilador | Nuevo proyecto desde DOCX | copia el Word a proyectos\<nombre>\ y crea automáticamente generado\<nombre>.sql y .report.json
-Informática | Adaptar SQL y proyecto en generado\ | tablas reales, aliases del DOCX, Page Items, título, anchos y max_rows
+Informática | Adaptar SQL y proyecto en generado\ | tablas reales, aliases del DOCX, Page Items, título y anchos
 Compilador | Validar y compilar | apex_process.sql (junto al DOCX) y generado\template.json se regeneran automáticamente
 APEX | Pegar proyectos\<nombre>\apex_process.sql y probar | Manual de uso, sección 9
 ```

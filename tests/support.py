@@ -219,7 +219,6 @@ def write_project(
         "query_file": query_path.name,
         "title": "Relación de personas",
         "file_name": "personas",
-        "max_rows": 2000,
         "bindings": [
             {
                 "name": "P_DNI",

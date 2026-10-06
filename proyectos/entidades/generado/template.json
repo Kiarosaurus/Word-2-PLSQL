@@ -14,7 +14,6 @@
     "title_value": "Relación de entidades",
     "footer_template": "Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}",
     "orientation": "LANDSCAPE",
-    "max_rows": 2000,
     "file_name": "reporte_entidades"
   },
   "query": {

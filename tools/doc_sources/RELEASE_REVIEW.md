@@ -87,7 +87,7 @@ Riesgo residual: restringir el primer token a `SELECT`/`WITH` no es una frontera
 
 ## 6. Riesgos residuales y decisiones
 
-- Un Page Item mal escrito en `bindings` devuelve NULL en ejecución. Con `required: false`, el filtro queda anulado hasta `p_max_rows`. Verifíquelo en la aceptación.
+- Un Page Item mal escrito en `bindings` devuelve NULL en ejecución. Con `required: false`, el filtro queda anulado y se exportan todas las filas. Verifíquelo en la aceptación.
 - `TO_DATE` sin el modificador `FX` acepta años de dos dígitos con la máscara `YYYY`.
 - Los tamaños de fuente decimales podrían depender del separador decimal de la sesión.
 - El acceso directo requiere PowerShell de Windows. Si una política lo bloquea, se usa el `.bat`.
@@ -96,11 +96,11 @@ Riesgo residual: restringir el primer token a `SELECT`/`WITH` no es una frontera
 
 Antes de producción, el responsable APEX debe registrar evidencia de:
 
-1. ejecución de `sql/install.sql` (o del package en SQL Workshop) en el parsing schema;
+1. ejecución de `sql/modo_simple/install.sql` (o del package en SQL Workshop) en el parsing schema;
 2. package y body en estado `VALID`, sin filas de error en `USER_ERRORS`;
 3. descarga PDF y XLSX con la receta del Manual, sección 9 (*Submit Page*, *Reload on Submit: Always*, proceso en *Processing*);
 4. binds `VARCHAR2`, `NUMBER`, `DATE` y `TIMESTAMP`, con valores nulos, obligatorios y conversiones inválidas (mensaje sin el valor);
-5. cero filas, una fila, muchas filas y truncamiento por `p_max_rows`;
+5. cero filas, una fila y muchas filas (todas se exportan, sin límite);
 6. orientación `AUTO`, `PORTRAIT` y `LANDSCAPE` en A4;
 7. anchos fijos, ponderados, una columna `AUTO` intermedia y exclusiones;
 8. LOV impreso con el display value;

@@ -117,9 +117,9 @@ def build_apex_guide(result: CompilationResult) -> str:
         "=" * 24,
         "",
         "1. Una sola vez por parsing schema: instalar el package común",
-        "   Archivo: sql/pkg_corporate_reports.sql (de este proyecto).",
+        "   Archivo: sql/modo_simple/pkg_corporate_reports.sql (de este proyecto).",
         "   Dónde: SQL Workshop > SQL Scripts > Upload > Run, conectado al parsing",
-        "   schema de la aplicación (o @sql/install.sql desde SQLcl/SQL*Plus).",
+        "   schema de la aplicación (o @sql/modo_simple/install.sql desde SQLcl/SQL*Plus).",
         "   Verifique: PKG_CORPORATE_REPORTS y su body en estado VALID y sin filas en",
         "   USER_ERRORS. Si ya instaló este mismo archivo, omita este paso.",
         "",
@@ -247,7 +247,6 @@ def build_skeleton(template: TemplateModel, *, page: str = PAGE_PLACEHOLDER, rep
         "title": re.sub(r"\s+", " ", stem.replace("_", " ")).strip() or "Reporte",
         "file_name": re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("_") or "reporte",
         "orientation": "AUTO",
-        "max_rows": 1000,
         "bindings": bindings,
         "fields": fields,
         "excluded_columns": [],
@@ -300,7 +299,7 @@ def format_skeleton(skeleton: ProjectSkeleton, files: tuple[Path, ...], page: st
         '1. En el .sql, reemplace tabla_origen y las columnas t."ALIAS" por las reales;',
         "   para LOV, haga JOIN y devuelva el display value con el alias del DOCX.",
         "2. Elimine los filtros y bindings que no necesite (deben coincidir 1 a 1).",
-        "3. Ajuste título, file_name, column_widths y max_rows en el .report.json.",
+        "3. Ajuste título, file_name y column_widths en el .report.json.",
         "4. Pulse Validar y luego Compilar.",
     ]
     return "\n".join(lines)

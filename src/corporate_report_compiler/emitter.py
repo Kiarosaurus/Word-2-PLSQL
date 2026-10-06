@@ -85,7 +85,6 @@ def build_definition(template: TemplateModel, project: ProjectModel, sql: str) -
             "title_value": project.title,
             "footer_template": template.footer_template,
             "orientation": project.orientation or template.template_orientation,
-            "max_rows": project.max_rows,
             "file_name": project.file_name,
         },
         "query": {"sql": sql, "bindings": list(project.bindings)},
@@ -199,7 +198,6 @@ begin
         p_file_name             => {oracle_expression(report['file_name'], clob=False)},
         p_format                => {format_expression},
         p_orientation           => {orientation_expression},
-        p_max_rows              => {int(report['max_rows'])},
         p_excluded_columns_json => l_excluded_columns,
         p_column_widths_json    => l_column_widths
     );

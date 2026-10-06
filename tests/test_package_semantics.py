@@ -27,7 +27,6 @@ DOWNLOAD_QUERY_SIGNATURE = (
     "p_file_name IN VARCHAR2 DEFAULT 'reporte'",
     "p_format IN VARCHAR2 DEFAULT 'PDF'",
     "p_orientation IN VARCHAR2 DEFAULT 'AUTO'",
-    "p_max_rows IN PLS_INTEGER DEFAULT 1000",
     "p_excluded_columns_json IN CLOB DEFAULT NULL",
     "p_column_widths_json IN CLOB DEFAULT NULL",
 )
@@ -189,13 +188,13 @@ class PackageSemanticContractTests(unittest.TestCase):
                 "        apex_exec.close(l_context);\n        l_context_is_open := FALSE;\n\n        apex_data_export.download(",
                 "        NULL; -- apex_exec.close(l_context);\n        l_context_is_open := FALSE;\n\n        apex_data_export.download(",
             ),
-            "default ampliado": (
-                "p_max_rows               IN PLS_INTEGER DEFAULT 1000,\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json",
-                "p_max_rows               IN PLS_INTEGER DEFAULT 100000,\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json",
+            "default cambiado": (
+                "p_orientation            IN VARCHAR2 DEFAULT 'AUTO',\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json",
+                "p_orientation            IN VARCHAR2 DEFAULT 'LANDSCAPE',\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json",
             ),
             "parámetros intercambiados": (
-                "        p_title                  IN VARCHAR2 DEFAULT 'Reporte',\n        p_file_name              IN VARCHAR2 DEFAULT 'reporte',\n        p_format                 IN VARCHAR2 DEFAULT 'PDF',\n        p_orientation            IN VARCHAR2 DEFAULT 'AUTO',\n        p_max_rows               IN PLS_INTEGER DEFAULT 1000,\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json     IN CLOB DEFAULT NULL\n    );\n\nEND",
-                "        p_file_name              IN VARCHAR2 DEFAULT 'reporte',\n        p_title                  IN VARCHAR2 DEFAULT 'Reporte',\n        p_format                 IN VARCHAR2 DEFAULT 'PDF',\n        p_orientation            IN VARCHAR2 DEFAULT 'AUTO',\n        p_max_rows               IN PLS_INTEGER DEFAULT 1000,\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json     IN CLOB DEFAULT NULL\n    );\n\nEND",
+                "        p_title                  IN VARCHAR2 DEFAULT 'Reporte',\n        p_file_name              IN VARCHAR2 DEFAULT 'reporte',\n        p_format                 IN VARCHAR2 DEFAULT 'PDF',\n        p_orientation            IN VARCHAR2 DEFAULT 'AUTO',\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json     IN CLOB DEFAULT NULL\n    );\n\nEND",
+                "        p_file_name              IN VARCHAR2 DEFAULT 'reporte',\n        p_title                  IN VARCHAR2 DEFAULT 'Reporte',\n        p_format                 IN VARCHAR2 DEFAULT 'PDF',\n        p_orientation            IN VARCHAR2 DEFAULT 'AUTO',\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json     IN CLOB DEFAULT NULL\n    );\n\nEND",
             ),
             "cierre en stop engine eliminado": (
                 "        WHEN apex_application.e_stop_apex_engine THEN\n            IF l_context_is_open THEN\n                apex_exec.close(l_context);",
@@ -227,6 +226,27 @@ class PackageSemanticContractTests(unittest.TestCase):
         self.assertIn("q'~/* c */~'", stripped)
         self.assertNotIn("fin", stripped)
         self.assertNotIn("bloque", stripped)
+
+    def test_no_row_limit_is_applied(self) -> None:
+        body = strip_plsql_comments(package_body(self.source)).lower()
+        for name in ("download_query", "download_ig"):
+            with self.subTest(procedure=name):
+                code = unit(body, "PROCEDURE", name)
+                calls = re.findall(r"(?:open_query_context|export_data)\s*\((?:(?!\);).)*\);", code, re.S)
+                self.assertTrue(calls, f"{name} no abre la consulta")
+                for call in calls:
+                    self.assertNotIn("p_max_rows", call)
+
+    def test_xlsx_omits_page_header_and_footer(self) -> None:
+        body = strip_plsql_comments(package_body(self.source))
+        query = re.sub(r"\s+", " ", unit(body, "PROCEDURE", "download_query").lower())
+        for argument, value in (("p_page_header", "l_page_header"), ("p_page_footer", "l_page_footer")):
+            with self.subTest(argument=argument):
+                self.assertIn(
+                    f"{argument} => case when l_export_format = apex_data_export.c_format_xlsx "
+                    f"then null else {value} end",
+                    query,
+                )
 
 
 if __name__ == "__main__":

@@ -15,7 +15,8 @@ CREATE OR REPLACE PACKAGE pkg_corporate_reports AUTHID CURRENT_USER AS
      * p_generated_by         Usuario que solicita la descarga.
      * p_format               PDF o XLSX.
      * p_orientation          AUTO, PORTRAIT o LANDSCAPE.
-     * p_max_rows             Máximo de registros que se exportarán.
+     * p_max_rows             Se conserva solo por compatibilidad de la firma y
+     *                        se ignora: nunca se limita la cantidad de registros.
      * p_excluded_columns_json
      *                        Array JSON con columnas que nunca deben
      *                        exportarse, aunque estén visibles.
@@ -80,7 +81,6 @@ CREATE OR REPLACE PACKAGE pkg_corporate_reports AUTHID CURRENT_USER AS
         p_file_name              IN VARCHAR2 DEFAULT 'reporte',
         p_format                 IN VARCHAR2 DEFAULT 'PDF',
         p_orientation            IN VARCHAR2 DEFAULT 'AUTO',
-        p_max_rows               IN PLS_INTEGER DEFAULT 1000,
         p_excluded_columns_json  IN CLOB DEFAULT NULL,
         p_column_widths_json     IN CLOB DEFAULT NULL
     );
@@ -1199,13 +1199,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
             );
         END IF;
 
-        IF p_max_rows IS NULL OR p_max_rows < 1 THEN
-            raise_application_error(
-                -20004,
-                'El máximo de registros debe ser mayor que cero.'
-            );
-        END IF;
-
         CASE UPPER(NVL(TRIM(p_format), 'PDF'))
             WHEN 'PDF' THEN
                 l_export_format := apex_data_export.c_format_pdf;
@@ -1396,7 +1389,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
             p_page_id      => p_page_id,
             p_region_id    => l_region_id,
             p_component_id => l_report_id,
-            p_max_rows     => p_max_rows,
             p_as_clob      => TRUE,
             p_file_name    => 'corporate_report_source',
             p_data_only    => TRUE
@@ -1835,7 +1827,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
         p_file_name              IN VARCHAR2,
         p_format                 IN VARCHAR2,
         p_orientation            IN VARCHAR2,
-        p_max_rows               IN PLS_INTEGER,
         p_excluded_columns_json  IN CLOB,
         p_column_widths_json     IN CLOB
     )
@@ -1935,13 +1926,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
             raise_application_error(
                 -20106,
                 'No se recibió la definición de columnas del reporte.'
-            );
-        END IF;
-
-        IF p_max_rows IS NULL OR p_max_rows < 1 OR p_max_rows > 100000 THEN
-            raise_application_error(
-                -20107,
-                'El máximo de registros debe estar entre 1 y 100000.'
             );
         END IF;
 
@@ -2527,9 +2511,8 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
             p_sql_query       => p_sql_query,
             p_sql_parameters  => l_parameters,
             p_auto_bind_items => FALSE,
-            p_first_row       => 1,
-            p_max_rows        => p_max_rows
-        );
+            p_first_row       => 1
+        );                                -- sin p_max_rows: se exportan todas las filas
         l_context_is_open := TRUE;
 
         FOR column_record IN (
@@ -2879,18 +2862,26 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
             END IF;
         END LOOP;
 
+        -- El XLSX lleva solo la fila de títulos y los datos, listo para filtrar
+        -- y analizar: título, campos, usuario, fecha y pie son solo del PDF.
         l_print_config := apex_data_export.get_print_config(
             p_paper_size              => l_paper_size,
             p_width_units             =>
                 apex_data_export.c_width_unit_percentage,
             p_orientation             => l_orientation,
-            p_page_header             => l_page_header,
+            p_page_header             => CASE
+                WHEN l_export_format = apex_data_export.c_format_xlsx THEN NULL
+                ELSE l_page_header
+            END,
             p_page_header_font_color  => l_style.title_font_color,
             p_page_header_font_family => l_style.title_font_family,
             p_page_header_font_weight => l_style.title_font_weight,
             p_page_header_font_size   => l_style.title_font_size,
             p_page_header_alignment   => l_style.title_alignment,
-            p_page_footer             => l_page_footer,
+            p_page_footer             => CASE
+                WHEN l_export_format = apex_data_export.c_format_xlsx THEN NULL
+                ELSE l_page_footer
+            END,
             p_page_footer_font_color  => l_style.footer_font_color,
             p_page_footer_font_family => l_style.footer_font_family,
             p_page_footer_font_weight => l_style.footer_font_weight,

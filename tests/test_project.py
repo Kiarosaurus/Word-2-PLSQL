@@ -227,7 +227,7 @@ class ProjectValidationTests(unittest.TestCase):
 
     def test_non_finite_json_numbers_are_rejected(self) -> None:
         project_path = make_valid_project(self.root)
-        payload = project_path.read_text(encoding="utf-8").replace('"max_rows": 2000', '"max_rows": NaN')
+        payload = project_path.read_text(encoding="utf-8").replace('"value": 14', '"value": NaN')
         project_path.write_text(payload, encoding="utf-8")
         diagnostics, model = self.load(project_path)
         self.assertIsNone(model)

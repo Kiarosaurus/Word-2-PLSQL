@@ -1,5 +1,5 @@
 -- Motor PDF del modo layout: se instala una sola vez por parsing schema.
--- SQLcl o SQL*Plus desde esta carpeta: @install_motor.sql
+-- SQLcl o SQL*Plus desde esta carpeta: @install.sql
 -- SQL Workshop > SQL Scripts: ejecute los cuatro archivos en este orden.
 WHENEVER SQLERROR EXIT FAILURE
 PROMPT RPT_PDF (dibujo de PDF en PL/SQL)...

@@ -314,7 +314,7 @@ def format_import(result: ImportResult, page: str) -> str:
         "Siguientes pasos:",
         "1. Edite generado/<nombre>.sql: tabla real, columnas, JOIN para LOV.",
         "2. Elimine los filtros y bindings que no necesite (deben coincidir 1 a 1).",
-        "3. Ajuste título, file_name, column_widths y max_rows en el .report.json.",
+        "3. Ajuste título, file_name y column_widths en el .report.json.",
         "4. Pulse Validar y luego Compilar.",
     ]
     return "\n".join(lines)

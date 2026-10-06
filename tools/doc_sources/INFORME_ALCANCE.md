@@ -134,7 +134,6 @@ PROCEDURE download_query(
     p_file_name              IN VARCHAR2 DEFAULT 'reporte',
     p_format                 IN VARCHAR2 DEFAULT 'PDF',
     p_orientation            IN VARCHAR2 DEFAULT 'AUTO',
-    p_max_rows               IN PLS_INTEGER DEFAULT 1000,
     p_excluded_columns_json  IN CLOB DEFAULT NULL,
     p_column_widths_json     IN CLOB DEFAULT NULL
 );
@@ -211,11 +210,11 @@ La compilación local valida contrato y coherencia, pero no comprueba objetos, s
 
 ### 10.4 Volumen
 
-Los límites reales dependen de Oracle, ORDS, memoria, complejidad SQL y configuración de la aplicación. Cada reporte debe tener `p_max_rows`, consultas indexables y pruebas con volumen representativo. `p_max_rows` limita la salida; si existen filas adicionales, la exportación queda truncada a ese máximo y no se promete un error de desbordamiento.
+Los límites reales dependen de Oracle, ORDS, memoria, complejidad SQL y configuración de la aplicación. Cada reporte debe tener filtros adecuados, consultas indexables y pruebas con volumen representativo. No existe límite de filas: el reporte exporta todas las filas que devuelve la consulta. El volumen se controla con los filtros, que Informática revisa antes de publicar el reporte.
 
 ### 10.5 XLSX
 
-PDF es el formato visual principal. Algunos atributos de página o estilo no tienen un equivalente idéntico en XLSX. En particular, XLSX no garantiza encabezado o pie de página, orientación ni anchos idénticos a los observados en el PDF.
+PDF es el formato visual principal. Algunos atributos de página o estilo no tienen un equivalente idéntico en XLSX. El XLSX se genera deliberadamente sin encabezado ni pie de página: contiene solo la fila de títulos de columna y los datos, para que pueda filtrarse y analizarse directamente. Además, XLSX no garantiza orientación ni anchos idénticos a los observados en el PDF.
 
 ## 11. Operación y mantenimiento
 
@@ -236,7 +235,7 @@ Quedan necesariamente a cargo del ambiente APEX:
 
 - compilar el package y body contra APEX 24.2;
 - generar PDF y XLSX reales;
-- validar cero filas, máximo de filas y conversiones erróneas;
+- validar cero filas, volúmenes grandes y conversiones erróneas;
 - confirmar orientación y anchos con datos representativos;
 - confirmar session state y autorizaciones.
 
@@ -251,7 +250,7 @@ Quedan necesariamente a cargo del ambiente APEX:
 | Diseño | Título y campos centrados; usuario y fecha en pie; tabla legible |
 | Columnas | Orden, exclusiones y anchos coinciden con configuración |
 | Formatos | PDF y XLSX descargables y válidos |
-| Límites | Nunca se exportan más filas que p_max_rows; la entrada inválida produce error controlado |
+| Volumen | Se exportan todas las filas de la consulta; la entrada inválida produce error controlado |
 ## 14. Conclusión
 
 La arquitectura propuesta satisface el objetivo de reportes corporativos tabulares con una experiencia de autoría accesible para Informática, sin incorporar un motor de documentos al servidor ni pagar una licencia de impresión. Su sostenibilidad depende de respetar la frontera: Word define una plantilla restringida, SQL define datos, el compilador traduce y un paquete común controla ejecución y exportación.

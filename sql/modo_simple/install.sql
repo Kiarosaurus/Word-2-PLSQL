@@ -1,4 +1,6 @@
--- Instalador para SQLcl o SQL*Plus.
+-- Motor del modo simple (PKG_CORPORATE_REPORTS): se instala una sola vez por parsing
+-- schema y lo usan todos los reportes del modo simple.
+-- Instalador para SQLcl o SQL*Plus, desde esta carpeta: @install.sql
 -- Ejecútelo conectado como el parsing schema de la aplicación APEX.
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 

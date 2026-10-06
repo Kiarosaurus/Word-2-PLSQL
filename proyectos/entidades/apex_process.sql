@@ -38,7 +38,6 @@ Unidad: {{FIELD:UNIDAD}}~',
         p_file_name             => q'~reporte_entidades~',
         p_format                => coalesce(:P0_REPORT_FORMAT, 'PDF'),
         p_orientation           => coalesce(:P0_REPORT_ORIENTATION, q'~LANDSCAPE~'),
-        p_max_rows              => 2000,
         p_excluded_columns_json => l_excluded_columns,
         p_column_widths_json    => l_column_widths
     );

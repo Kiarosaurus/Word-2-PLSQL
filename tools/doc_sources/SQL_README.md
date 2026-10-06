@@ -1,6 +1,41 @@
-# Instalación de PKG_CORPORATE_REPORTS
+# Objetos de base de datos
 
-## Requisitos
+## Qué hay en esta carpeta
+
+La carpeta `sql` contiene solo los **motores comunes**: se instalan **una vez por parsing schema** y los usan **todos** los reportes de su modo. Nada de lo que hay aquí pertenece a una página concreta.
+
+```
+sql\
+  modo_simple\                 motor del modo simple (APEX_DATA_EXPORT)
+    install.sql                instalador para SQLcl o SQL*Plus
+    pkg_corporate_reports.sql  PKG_CORPORATE_REPORTS
+  modo_layout\                 motor del modo layout (PDF en PL/SQL)
+    install.sql                instalador para SQLcl o SQL*Plus
+    rpt_pdf.pks / rpt_pdf.pkb          RPT_PDF: dibuja el PDF
+    rpt_layout.pks / rpt_layout.pkb    RPT_LAYOUT: interpreta el layout del Word
+```
+
+Lo que pertenece a **un solo reporte** vive en su carpeta `proyectos\<nombre>\`:
+
+| Archivo | Qué es | Cuándo se instala |
+|---|---|---|
+| apex_process.sql | Código del proceso de descarga de la página | Se pega en APEX al publicar o recompilar el reporte |
+| rpt_<nombre>.sql | Package del reporte (solo modo layout) | En SQL Workshop cada vez que se recompila |
+| datos_prueba.sql | Tablas PRUEBAP_ de los ejemplos (solo entidades y estado_cuenta) | Una vez, solo en el ambiente de pruebas |
+
+Los archivos `.pks` y `.pkb` son las dos mitades de un package de Oracle: la especificación (lo que ofrece) y el cuerpo (el código). Se instala primero el `.pks` y después su `.pkb`.
+
+```flujo
+# Figura 1. Qué se instala una vez y qué por reporte
+Una vez por esquema | sql\modo_simple\ | PKG_CORPORATE_REPORTS: lo usan todos los reportes del modo simple
+Una vez por esquema | sql\modo_layout\ | RPT_PDF y RPT_LAYOUT: los usan todos los reportes del modo layout
+Por reporte (layout) | proyectos\<nombre>\rpt_<nombre>.sql | package con las consultas y el layout de ese reporte
+Por reporte | proyectos\<nombre>\apex_process.sql | se pega en el proceso de descarga de su página
+```
+
+## Modo simple: PKG_CORPORATE_REPORTS
+
+### Requisitos
 
 - Oracle APEX 24.2.
 - Una aplicación con impresión nativa disponible mediante `APEX_DATA_EXPORT`.
@@ -9,21 +44,21 @@
 
 No se necesita Word, Python, LibreOffice ni un contenedor en el servidor. Esas herramientas solo intervienen localmente al compilar una plantilla.
 
-## Instalación con SQLcl o SQL*Plus
+### Instalación con SQLcl o SQL*Plus
 
 Conéctese como el *parsing schema*, cambie a esta carpeta y ejecute:
 
 ```
 -- Ejemplo con SQLcl, conectado como el parsing schema de la aplicación
 sql APP_SCHEMA@//servidor:1521/servicio
-cd sql                       -- carpeta sql/ de este proyecto
+cd sql/modo_simple           -- carpeta del motor del modo simple
 @install.sql                 -- crea package y body, verifica USER_ERRORS y VALID
 ```
 
 El instalador detiene la ejecución ante un error, consulta `USER_ERRORS` y exige que el package y su body figuren como `VALID` en `USER_OBJECTS`, para evitar aceptar silenciosamente un package inválido. Al iniciar muestra la versión del compilador con la que se distribuye (1.0.0); el package no expone su versión en ejecución, así que reinstálelo cuando cambie este archivo.
 
 ```flujo
-# Figura 1. Instalación y verificación del package
+# Figura 2. Instalación y verificación de PKG_CORPORATE_REPORTS
 DBA / Informática | Conectarse como el parsing schema | nunca como SYS ni con un usuario distinto del de la aplicación
 ? Instalación | ¿Se dispone de SQLcl o SQL*Plus? | No: SQL Workshop > SQL Scripts y ejecutar pkg_corporate_reports.sql
 Instalación | Ejecutar @install.sql | CREATE OR REPLACE PACKAGE y PACKAGE BODY
@@ -32,7 +67,7 @@ Seguridad | Mantener AUTHID CURRENT_USER y no conceder EXECUTE a PUBLIC | una so
 APEX | Pegar en cada página el apex_process.sql generado | se genera automáticamente al compilar cada reporte
 ```
 
-## Instalación desde SQL Workshop
+### Instalación desde SQL Workshop
 
 `install.sql` usa la directiva `@@`, propia de SQLcl/SQL*Plus. En SQL Workshop:
 
@@ -55,7 +90,7 @@ from user_objects
 where object_name = 'PKG_CORPORATE_REPORTS';
 ```
 
-## Controles de seguridad obligatorios
+### Controles de seguridad obligatorios
 
 - El package usa `AUTHID CURRENT_USER`; no lo cambie a derechos del definidor.
 - No conceda `EXECUTE` sobre el package a `PUBLIC`.
@@ -64,10 +99,10 @@ where object_name = 'PKG_CORPORATE_REPORTS';
 - Los nombres reservados de APEX (`APP_USER`, `APP_ID`, `REQUEST`…) no pueden usarse como binds lógicos; el package los rechaza con -20173. Para filtrar por el usuario autenticado use `SYS_CONTEXT('APEX$SESSION', 'APP_USER')`.
 - La validación `SELECT/WITH` reduce errores, pero no convierte SQL arbitrario en una barrera de autorización. Una consulta `SELECT` puede invocar funciones de base de datos. Revise el SQL generado antes de instalarlo.
 - Otorgue al *parsing schema* solo los privilegios de lectura indispensables y use vistas controladas cuando el reporte abarque datos sensibles.
-- Fije `p_max_rows` conforme al volumen aprobado. El límite técnico del paquete no sustituye límites funcionales más bajos.
+- El paquete no limita la cantidad de filas: exporta todo lo que devuelve la consulta. Revise los filtros de cada reporte antes de publicarlo.
 - Mantenga el proceso de descarga protegido por la autorización de página o componente correspondiente.
 
-## API pública
+### API pública
 
 `DOWNLOAD_QUERY` ejecuta una única consulta declarativa con parámetros, columnas y estilos compilados desde Word. Es la operación que invoca el `apex_process.sql` que el compilador genera automáticamente para cada reporte; no hace falta escribir la llamada a mano. Extracto comentado de un proceso generado:
 
@@ -91,7 +126,7 @@ end;
 
 `DOWNLOAD_QUERY` usa siempre papel `A4` y admite orientación `AUTO`, `PORTRAIT` o `LANDSCAPE`. Si existe una única columna `AUTO`, el package aplica internamente una reserva heurística fija de 20 % al distribuir el ancho restante. El tamaño de papel y esa reserva no forman parte de la API pública.
 
-## Comprobaciones que requieren APEX
+### Comprobaciones que requieren APEX
 
 La revisión local no puede compilar contra las especificaciones instaladas de APEX ni generar un PDF real. Antes de promover a producción, pruebe en APEX 24.2:
 
@@ -102,3 +137,18 @@ La revisión local no puede compilar contra las especificaciones instaladas de A
 5. papel A4 en orientación `AUTO`, `PORTRAIT` y `LANDSCAPE`;
 6. una columna `AUTO`, columnas fijas y ponderadas, y columnas excluidas;
 7. cierre correcto de la petición después de `APEX_DATA_EXPORT.DOWNLOAD`.
+
+## Modo layout: RPT_PDF y RPT_LAYOUT
+
+Requisitos: Oracle Database 18c o superior (usa `JSON_OBJECT_T`) y el mismo parsing schema que los reportes. No necesita Java, servidores de impresión ni licencias.
+
+Con SQLcl o SQL*Plus:
+
+```
+cd sql/modo_layout
+@install.sql                 -- RPT_PDF y RPT_LAYOUT, y muestra su estado
+```
+
+Desde SQL Workshop > SQL Scripts, suba y ejecute en este orden: `rpt_pdf.pks`, `rpt_pdf.pkb`, `rpt_layout.pks` y `rpt_layout.pkb`. Compruebe en Object Browser que los dos packages están VALID.
+
+Después, por cada reporte del modo layout, ejecute su `proyectos\<nombre>\rpt_<nombre>.sql` y pegue su `apex_process.sql` en la página (Manual de uso, sección 13.3).

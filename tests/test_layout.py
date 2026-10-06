@@ -159,7 +159,7 @@ class LayoutProjectTests(unittest.TestCase):
         self.assertIn("p_cod_alumno IN VARCHAR2", package)
         self.assertIn("FUNCTION q_cuotas RETURN CLOB", package)
         self.assertIn("rpt_layout.render(", package)
-        self.assertIn(":P70_COD_ALUMNO", (self.copy / "apex_process.sql").read_text(encoding="utf-8"))
+        self.assertIn(":P71_COD_ALUMNO", (self.copy / "apex_process.sql").read_text(encoding="utf-8"))
 
     def test_committed_demo_outputs_match_a_fresh_compilation(self) -> None:
         output, process_directory = workspace_outputs(self.project)

@@ -14,7 +14,7 @@ from tests.support import make_valid_project
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_PATH = ROOT / "sql" / "pkg_corporate_reports.sql"
+PACKAGE_PATH = ROOT / "sql" / "modo_simple" / "pkg_corporate_reports.sql"
 EXPECTED_ARTIFACTS = ("apex_process.sql", "template.json", "validation.json")
 
 

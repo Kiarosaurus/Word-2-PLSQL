@@ -17,7 +17,7 @@
   "parameters": [
     {
       "name": "P_COD_ALUMNO",
-      "item": "P70_COD_ALUMNO",
+      "item": "P71_COD_ALUMNO",
       "type": "VARCHAR2",
       "format_mask": null,
       "required": true

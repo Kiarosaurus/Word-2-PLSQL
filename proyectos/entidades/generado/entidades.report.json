@@ -8,7 +8,6 @@
   "orientation": "LANDSCAPE",
   "format_item": "P0_REPORT_FORMAT",
   "orientation_item": "P0_REPORT_ORIENTATION",
-  "max_rows": 2000,
   "bindings": [
     {
       "bind": "DNI",

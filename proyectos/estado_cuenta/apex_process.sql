@@ -4,7 +4,7 @@ declare
     l_pdf blob;
 begin
     l_pdf := rpt_estado_cuenta.build(
-        p_cod_alumno => :P70_COD_ALUMNO,
+        p_cod_alumno => :P71_COD_ALUMNO,
         p_app_user => :APP_USER
     );
     sys.htp.init;

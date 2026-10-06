@@ -32,8 +32,8 @@ Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}   <- pie de página de Word
 
 ## Dos modos
 
-- **Modo simple** (`corporate-report-project/1.0`): un título, una tabla y un pie, impresos con `APEX_DATA_EXPORT`. También genera XLSX.
-- **Modo layout** (`corporate-layout-project/1.0`): varias tablas, cuadrículas con bordes visibles, blancos o sin borde, totales y número de página, impresos por el motor PDF en PL/SQL (`sql/prototipo_pdf`). Una consulta por archivo, como el Data Model de Oracle Reports. Ejemplo ficticio: `proyectos/estado_cuenta`. Ver Manual de uso, sección 13.
+- **Modo simple** (`corporate-report-project/1.0`): un título, una tabla y un pie, impresos con `APEX_DATA_EXPORT`. También genera XLSX, que lleva solo la fila de títulos y los datos (sin título, usuario, fecha ni pie), listo para filtrar y analizar.
+- **Modo layout** (`corporate-layout-project/1.0`): varias tablas, cuadrículas con bordes visibles, blancos o sin borde, totales y número de página, impresos por el motor PDF en PL/SQL (`sql/modo_layout`). Una consulta por archivo, como el Data Model de Oracle Reports. Ejemplo ficticio: `proyectos/estado_cuenta`. Ver Manual de uso, sección 13.
 
 ## Flujo de trabajo
 
@@ -124,7 +124,7 @@ La compilación es transaccional: si la validación falla, se conserva intacta l
 ## Instalación en Oracle APEX
 
 1. Lea `sql/README.docx`.
-2. Instale `sql/pkg_corporate_reports.sql` en el *parsing schema*.
+2. Instale `sql/modo_simple/pkg_corporate_reports.sql` en el *parsing schema*.
 3. Confirme que el package y su body estén `VALID`.
 4. Compile localmente el proyecto del reporte.
 5. Revise y copie `apex_process.sql` en un proceso de descarga de APEX.
@@ -139,7 +139,7 @@ El proceso generado llama a la operación pública `PKG_CORPORATE_REPORTS.DOWNLO
 - `docs/CONTRACT.docx`: contrato técnico normativo.
 - `docs/TEMPLATE_QA.docx`: control de calidad de las plantillas de referencia.
 - `docs/RELEASE_REVIEW.docx`: evidencia y veredicto de la revisión de liberación.
-- `sql/README.docx`: instalación y seguridad del package.
+- `sql/README.docx`: qué contiene `sql/` (los motores comunes de cada modo), instalación y seguridad.
 - `proyectos/`: una carpeta por reporte, con el mismo nombre que su DOCX. Junto al DOCX queda `apex_process.sql` (lo que se pega en APEX); el material de trabajo va en `generado/`. Volver a cargar un DOCX con el mismo nombre reemplaza solo esos archivos, con copias `.bak`; nada más se borra.
 - `proyectos/entidades/`: proyecto de ejemplo ejecutable; es el único que incluye además su documentación (`README.docx`).
 - `templates/`: plantillas Word de referencia, vertical y horizontal.

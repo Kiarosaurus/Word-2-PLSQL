@@ -1,4 +1,4 @@
--- Tablas de prueba del ejemplo ESTADO_CUENTA (convención PRUEBAP_, página 70).
+-- Tablas de prueba del ejemplo ESTADO_CUENTA (convención PRUEBAP_, página 71).
 -- Datos ficticios: academia, alumno, montos y fechas son inventados.
 -- Idempotente: crea cada tabla solo si no existe e inserta solo si está vacía.
 -- No borra ni modifica ninguna tabla existente.

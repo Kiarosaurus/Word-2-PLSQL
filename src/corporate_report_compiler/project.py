@@ -718,10 +718,13 @@ def load_project(
         diagnostics.error("PROJECT-072", "file_name solo admite letras, números, _ y -.")
     elif len(file_name) > 180:
         diagnostics.error("PROJECT-101", "file_name no puede superar 180 caracteres.")
-    max_rows = raw.get("max_rows", 1000)
-    if not isinstance(max_rows, int) or isinstance(max_rows, bool) or not 1 <= max_rows <= 100_000:
-        diagnostics.error("PROJECT-073", "max_rows debe ser un entero entre 1 y 100000.")
-        max_rows = 1000
+    if "max_rows" in raw:
+        # Nunca se limita la cantidad de filas: el volumen se controla con los filtros.
+        diagnostics.warning(
+            "PROJECT-073",
+            "'max_rows' ya no se usa y se ignora: el reporte exporta todas las filas de la consulta.",
+            suggestion="Quite 'max_rows' del proyecto; controle el volumen con los filtros.",
+        )
     orientation_value = raw.get("orientation")
     orientation = (
         _text_value(raw, "orientation", location="orientation", diagnostics=diagnostics).strip().upper() or None
@@ -776,7 +779,6 @@ def load_project(
         query_path=(path.parent / str(raw["query_file"])).resolve(),
         title=title,
         file_name=file_name,
-        max_rows=max_rows,
         orientation=orientation,
         format_item=format_item,
         orientation_item=orientation_item,

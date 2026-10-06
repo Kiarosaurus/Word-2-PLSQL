@@ -361,7 +361,6 @@ Ubicación de los artefactos de cada reporte:
 | template, query_file | sí | rutas relativas al .report.json que no salen de la carpeta del proyecto: proyectos/<nombre>/ si el manifiesto está en generado/, o la carpeta del propio manifiesto en otro caso |
 | title | sí | texto JSON, máximo 255 bytes UTF-8 |
 | file_name | no | letras, números, _ o -; máximo 180; por defecto report_id en minúsculas |
-| max_rows | no | entero de 1 a 100 000; por defecto 1000 |
 | orientation | no | AUTO, PORTRAIT o LANDSCAPE; si falta, se usa la orientación de la página Word |
 | format_item | no | Page Item cuyo valor (PDF o XLSX) elige el formato en ejecución |
 | orientation_item | no | Page Item cuyo valor (AUTO, PORTRAIT, LANDSCAPE) elige la orientación |
@@ -404,7 +403,6 @@ Ejemplo abreviado:
     "title_value": "Relación de entidades",
     "footer_template": "Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}",
     "orientation": "AUTO",
-    "max_rows": 1000,
     "file_name": "reporte_entidades"
   },
   "query": {
@@ -496,7 +494,6 @@ PROCEDURE download_query(
     p_file_name              IN VARCHAR2 DEFAULT 'reporte',
     p_format                 IN VARCHAR2 DEFAULT 'PDF',
     p_orientation            IN VARCHAR2 DEFAULT 'AUTO',
-    p_max_rows               IN PLS_INTEGER DEFAULT 1000,
     p_excluded_columns_json  IN CLOB DEFAULT NULL,
     p_column_widths_json     IN CLOB DEFAULT NULL
 );
@@ -549,7 +546,7 @@ APEX_DATA_EXPORT | Exportar y descargar | el contexto se cierra también ante er
 
 ## 9. Instalación del paquete
 
-El paquete se instala con `CREATE OR REPLACE PACKAGE` y `PACKAGE BODY` mediante `sql/install.sql`, que detiene la ejecución ante un error, consulta `USER_ERRORS` y exige que ambos objetos queden `VALID`. Se instala una sola vez por parsing schema; los procesos APEX generados para cada reporte no requieren edición cuando se reinstala el mismo archivo.
+El paquete se instala con `CREATE OR REPLACE PACKAGE` y `PACKAGE BODY` mediante `sql/modo_simple/install.sql`, que detiene la ejecución ante un error, consulta `USER_ERRORS` y exige que ambos objetos queden `VALID`. Se instala una sola vez por parsing schema; los procesos APEX generados para cada reporte no requieren edición cuando se reinstala el mismo archivo.
 
 ## 10. Seguridad
 
@@ -568,7 +565,7 @@ El paquete se instala con `CREATE OR REPLACE PACKAGE` y `PACKAGE BODY` mediante 
 - lista exacta de bind mappings;
 - parsing schema con privilegio mínimo;
 - vistas de negocio preferidas para ocultar tablas sensibles;
-- `p_max_rows` obligatorio y limitado por una cota institucional; el motor exporta como máximo esa cantidad y puede truncar filas adicionales;
+- sin límite de filas: se exportan todas las filas de la consulta; el volumen se controla con filtros revisados por Informática;
 - tiempo y costo de consultas controlados por políticas Oracle, no por el compilador;
 - no se acepta SQL enviado por el navegador.
 
@@ -636,7 +633,7 @@ Una **advertencia** permite continuar, pero queda en el diagnóstico. Ejemplos:
 8. La orientación `AUTO` elige vertical para hasta tres columnas finales y horizontal para cuatro o más, salvo definición de plantilla o elección explícita según la precedencia acordada.
 9. Encabezado centrado con título y campos `{{FIELD:...}}`, y footer con usuario/fecha, se generan con las familias soportadas.
 10. El contexto se cierra ante éxito y error; no quedan colecciones o archivos temporales.
-11. `p_max_rows` impide exportaciones ilimitadas.
+11. Se exportan todas las filas que devuelve la consulta, sin truncar.
 
 ### 12.3 Prueba manual APEX a cargo del integrador
 
@@ -669,6 +666,7 @@ Las exclusiones institucionales del proceso siempre prevalecen sobre la plantill
 - Los anchos son indicaciones y pueden variar por contenido y renderizador.
 - El compilador no verifica contra Oracle que la consulta compile; esa prueba se realiza en SQL Workshop/APEX.
 - XLSX puede ignorar propiedades que solo aplican a impresión PDF.
+- El XLSX no lleva encabezado ni pie: título, campos escalares, usuario, fecha y pie se imprimen solo en el PDF; el Excel contiene la fila de títulos y los datos.
 - La seguridad de la consulta depende también del parsing schema, vistas, funciones ejecutables y gobierno de cambios.
 
 Estas limitaciones son parte del contrato y no defectos de la versión 1.0.

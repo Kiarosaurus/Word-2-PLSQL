@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_PATH = ROOT / "sql" / "pkg_corporate_reports.sql"
+PACKAGE_PATH = ROOT / "sql" / "modo_simple" / "pkg_corporate_reports.sql"
 
 
 def package_spec(source: str) -> str:
@@ -103,7 +103,6 @@ class PackageStaticContractTests(unittest.TestCase):
                 "p_file_name IN VARCHAR2 DEFAULT 'reporte'",
                 "p_format IN VARCHAR2 DEFAULT 'PDF'",
                 "p_orientation IN VARCHAR2 DEFAULT 'AUTO'",
-                "p_max_rows IN PLS_INTEGER DEFAULT 1000",
                 "p_excluded_columns_json IN CLOB DEFAULT NULL",
                 "p_column_widths_json IN CLOB DEFAULT NULL",
             ),

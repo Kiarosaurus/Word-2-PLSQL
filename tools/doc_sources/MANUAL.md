@@ -81,7 +81,7 @@ proyectos\
       validation.json         <- diagnósticos
 ```
 
-El `.sql` no se sube a APEX como archivo: al compilar, la consulta se copia dentro de `apex_process.sql`. El package común `sql\pkg_corporate_reports.sql` se instala aparte, una sola vez por esquema (sección 8).
+El `.sql` no se sube a APEX como archivo: al compilar, la consulta se copia dentro de `apex_process.sql`. El package común `sql\modo_simple\pkg_corporate_reports.sql` se instala aparte, una sola vez por esquema (sección 8).
 
 Reglas de la carpeta:
 
@@ -315,7 +315,6 @@ Versión comentada del ejemplo `proyectos/entidades/generado/entidades.report.js
   "orientation": "LANDSCAPE",                 // AUTO, PORTRAIT o LANDSCAPE; si falta, la del Word
   "format_item": "P0_REPORT_FORMAT",          // opcional: el usuario elige PDF o XLSX
   "orientation_item": "P0_REPORT_ORIENTATION",// opcional: el usuario elige la orientación
-  "max_rows": 2000,                           // tope de filas exportadas
   "bindings": [                               // un mapping por cada :BIND del SQL
     {"bind":"DNI", "item":"P42_DNI", "type":"VARCHAR2", "required":false},
     {"bind":"DEPARTAMENTO_ID", "item":"P42_DEPARTAMENTO_ID", "type":"NUMBER", "required":false}
@@ -364,7 +363,7 @@ Cada bind detectado en SQL debe tener exactamente un mapping en `bindings`.
 
 Los nombres de Page Items deben usar el patrón `P<número>_NOMBRE`, con letras, números y guion bajo después del prefijo. No use `$` ni `#` en Page Items del proyecto.
 
-`max_rows` es un límite de salida, no una comprobación de totalidad: si la consulta devuelve más filas, APEX exportará como máximo esa cantidad. Defina un valor acorde con el reporte y filtros que eviten resultados ambiguamente truncados.
+No existe límite de filas: el reporte exporta todas las filas que devuelve la consulta. El volumen se controla con los filtros, que Informática revisa antes de publicar el reporte. Antes de publicar, pruebe el reporte con los filtros vacíos para conocer el volumen máximo real.
 
 Ejemplo de fecha (comentado):
 
@@ -493,10 +492,10 @@ La instalación se realiza una sola vez por esquema de aplicación. Desde SQLcl 
 
 ```
 -- Conectado como el parsing schema, desde la raíz del proyecto
-@sql/install.sql
+@sql/modo_simple/install.sql
 ```
 
-Desde SQL Workshop cargue y ejecute `sql/pkg_corporate_reports.sql`, y compruebe:
+Desde SQL Workshop cargue y ejecute `sql/modo_simple/pkg_corporate_reports.sql`, y compruebe:
 
 ```
 -- No debe devolver filas
@@ -510,7 +509,7 @@ Tanto el package como su body deben figurar como `VALID`. No conceda `EXECUTE` a
 
 ## 9. Integrar en una página APEX
 
-Solo dos cosas llegan a APEX: `sql/pkg_corporate_reports.sql` (una vez por esquema, sección 8) y el contenido de `apex_process.sql` (una vez por reporte). El DOCX, el `.report.json`, el `.sql` fuente, `template.json` y `validation.json` se quedan en el repositorio. La interfaz gráfica muestra esta misma receta con los nombres reales del reporte al compilar.
+Solo dos cosas llegan a APEX: `sql/modo_simple/pkg_corporate_reports.sql` (una vez por esquema, sección 8) y el contenido de `apex_process.sql` (una vez por reporte). El DOCX, el `.report.json`, el `.sql` fuente, `template.json` y `validation.json` se quedan en el repositorio. La interfaz gráfica muestra esta misma receta con los nombres reales del reporte al compilar.
 
 ```flujo
 # Figura 4. Qué ocurre cuando el usuario pulsa Descargar
@@ -530,7 +529,7 @@ APEX_DATA_EXPORT | Genera y envía el PDF o el XLSX | la página no se recarga; 
 | Cada bindings[].item (por ejemplo P42_DNI) | página del reporte | Text Field, Number Field o Select List (con LOV: el return value) | según el filtro |
 | Item DATE/TIMESTAMP | página del reporte | Date Picker | misma máscara que format_mask |
 | Cada fields[].item de origen ITEM | página del reporte | el que corresponda | texto para encabezado o pie |
-| format_item (por ejemplo P0_REPORT_FORMAT) | página 0 (Global Page) | Select List o Radio Group | retorno exacto PDF o XLSX; por defecto PDF |
+| format_item (por ejemplo P0_REPORT_FORMAT) | página 0 (Global Page) | Select List o Radio Group | retorno exacto PDF o XLSX; por defecto PDF. El XLSX lleva solo títulos de columna y datos |
 | orientation_item (por ejemplo P0_REPORT_ORIENTATION) | página 0 (Global Page) | Select List o Radio Group | retorno exacto AUTO, PORTRAIT o LANDSCAPE; si queda vacío se usa la orientación del proyecto o del DOCX |
 
 Si la aplicación no tiene Global Page, créela (página 0) o quite `format_item` y `orientation_item` del proyecto y recompile. Active **Session State Protection** en los items de filtro cuando corresponda.
@@ -571,7 +570,6 @@ Unidad: {{FIELD:UNIDAD}}',                          -- párrafo de título del W
     p_file_name             => 'reporte_entidades',
     p_format                => coalesce(:P0_REPORT_FORMAT, 'PDF'),
     p_orientation           => coalesce(:P0_REPORT_ORIENTATION, 'LANDSCAPE'), -- Page Item o valor compilado
-    p_max_rows              => 2000,
     p_excluded_columns_json => l_excluded_columns,
     p_column_widths_json    => l_column_widths
 );
@@ -584,15 +582,15 @@ El usuario se obtiene del contexto de APEX y el papel es siempre A4.
 Antes de producción pruebe:
 
 - compilación del package sin errores;
-- PDF y XLSX;
+- PDF y XLSX (el XLSX debe traer solo títulos de columna y datos, sin encabezado ni pie);
 - consulta con cero, una y muchas filas;
-- límite `p_max_rows`;
+- volumen grande con los filtros vacíos (todas las filas se exportan);
 - filtros vacíos y requeridos;
 - `VARCHAR2`, `NUMBER`, `DATE` y `TIMESTAMP`;
 - orientación `AUTO`, `PORTRAIT` y `LANDSCAPE`;
 - columnas fijas, ponderadas, automática y excluidas;
 - LOV mostrando descripción, no ID;
-- título, campos `{{FIELD:...}}`, usuario y fecha en encabezado y pie;
+- título, campos `{{FIELD:...}}`, usuario y fecha en encabezado y pie del PDF;
 - permisos de un usuario autorizado y otro no autorizado.
 
 ## 11. Diagnóstico de problemas
@@ -649,7 +647,7 @@ Informática | Diseñar el Word con varias tablas | maquetación con bordes visi
 Compilador | Nuevo proyecto desde DOCX | crea generado\q_<consulta>.sql por cada consulta y el .report.json
 Informática | Pegar en cada q_<consulta>.sql la Query del reporte original | mismos binds :P_NOMBRE; edición mínima
 Compilador | Compilar | genera rpt_<reporte>.sql y apex_process.sql junto al DOCX
-APEX | Instalar el motor (una vez) y el package del reporte | sql\prototipo_pdf\install_motor.sql
+APEX | Instalar el motor (una vez) y el package del reporte | sql\modo_layout\install.sql
 Usuario final | Descargar | el package ejecuta las consultas y dibuja el PDF
 ```
 
@@ -695,7 +693,7 @@ Pie de Word:  Generado por {{APP_USER}}   [{{PAGE}}] DE [{{PAGES}}]
   "template": "../estado_cuenta.docx",
   "title": "ESTADO DE CUENTA DEL ALUMNO",
   "parameters": [                              // User Parameters del reporte
-    {"name": "P_COD_ALUMNO", "item": "P70_COD_ALUMNO", "type": "VARCHAR2", "required": true}
+    {"name": "P_COD_ALUMNO", "item": "P71_COD_ALUMNO", "type": "VARCHAR2", "required": true}
   ],
   "queries": {                                 // Queries del Data Model, una por archivo
     "ALUMNO":   "q_alumno.sql",
@@ -718,8 +716,8 @@ Pie de Word:  Generado por {{APP_USER}}   [{{PAGE}}] DE [{{PAGES}}]
 
 ### 13.3 Instalación y publicación
 
-1. Una vez por esquema: `sql\prototipo_pdf\install_motor.sql` (o los cuatro archivos `rpt_pdf.*` y `rpt_layout.*` en SQL Workshop).
+1. Una vez por esquema: `sql\modo_layout\install.sql` (o los cuatro archivos `rpt_pdf.*` y `rpt_layout.*` en SQL Workshop).
 2. Por reporte: ejecute `proyectos\<nombre>\rpt_<reporte>.sql` en SQL Workshop cada vez que recompile.
 3. Cree los Page Items de `parameters`, el botón (Submit Page, Reload on Submit: Always) y el proceso con `apex_process.sql`, igual que en la sección 9.
 
-El ejemplo ficticio `proyectos\estado_cuenta` (estado de cuenta de un alumno de una academia de demostración) usa las tablas de prueba `PRUEBAP_ALUMNO*`; `sql\prototipo_pdf\pruebap_estado_cuenta_datos.sql` las crea solo si no existen y nunca borra datos. `proyectos\estado_cuenta\ejemplo_estado_cuenta.pdf` muestra el resultado.
+El ejemplo ficticio `proyectos\estado_cuenta` (estado de cuenta de un alumno de una academia de demostración) usa las tablas de prueba `PRUEBAP_ALUMNO*`; `proyectos\estado_cuenta\datos_prueba.sql` las crea solo si no existen y nunca borra datos. `proyectos\estado_cuenta\ejemplo_estado_cuenta.pdf` muestra el resultado.
