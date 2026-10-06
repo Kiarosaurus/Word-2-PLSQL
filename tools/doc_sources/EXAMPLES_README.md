@@ -1,6 +1,6 @@
 # Ejemplo ejecutable ENTIDADES
 
-La carpeta `proyectos/entidades/` contiene un proyecto completo que el compilador puede validar y compilar sin mover archivos. Sigue la misma organización que tendrá cualquier reporte nuevo; es el único proyecto que además incluye esta documentación (`README.docx`). Los nombres de tablas son ilustrativos; solo la ejecución posterior en APEX exige sustituirlos por objetos que existan en el esquema de la aplicación.
+La carpeta `proyectos/entidades/` contiene un proyecto completo que el compilador puede validar y compilar sin mover archivos. Sigue la misma organización que tendrá cualquier reporte nuevo; es el único proyecto que además incluye esta documentación (`README.docx`). Sus tablas tienen el prefijo `pruebap_` y están pensadas para una página de prueba (página 70); la sección «Tablas de prueba» incluye el DDL y los datos para crearlas.
 
 ## Archivos
 
@@ -18,7 +18,54 @@ proyectos/entidades/
 
 `entidades.sql` no se sube a APEX como archivo: al compilar, su consulta se copia dentro de `apex_process.sql` (`l_sql clob := to_clob(q'~select …~')`). Por eso vive en `generado/` junto con el resto del material de trabajo.
 
-El DOCX se utiliza solamente durante la compilación local. En APEX se instala el paquete una vez y se pega el bloque `apex_process.sql`. Las tablas del SQL (`entidad`, `mae_departamento`, `mae_distrito`) son ilustrativas: el proceso solo funcionará en APEX después de adaptar el SQL a objetos reales y recompilar.
+El DOCX se utiliza solamente durante la compilación local. En APEX se instala el paquete una vez y se pega el bloque `apex_process.sql`. Las tablas del SQL (`pruebap_entidad`, `pruebap_departamento`, `pruebap_distrito`) son tablas de prueba: créelas en el parsing schema (sección «Tablas de prueba») o adapte el SQL a objetos reales y recompile.
+
+## Tablas de prueba
+
+Ejecútelo conectado como el *parsing schema*. Los tipos coinciden con los binds: `vdni` es texto, `departamento_id` es número y `fecha_registro` es fecha.
+
+```
+create table pruebap_departamento (
+    id          number primary key,
+    descripcion varchar2(100) not null
+);
+
+create table pruebap_distrito (
+    id          number primary key,
+    descripcion varchar2(100) not null
+);
+
+create table pruebap_entidad (
+    vdni            varchar2(8) primary key,
+    vnom            varchar2(200) not null,
+    vdirec_actual   varchar2(300),
+    departamento_id number references pruebap_departamento(id),
+    distrito_id     number references pruebap_distrito(id),
+    vnro_tlf1       varchar2(20),
+    fecha_registro  date default sysdate
+);
+
+insert into pruebap_departamento values (1, 'Lima');
+insert into pruebap_departamento values (2, 'Arequipa');
+insert into pruebap_departamento values (3, 'Cusco');
+insert into pruebap_distrito values (1, 'Miraflores');
+insert into pruebap_distrito values (2, 'Cayma');
+insert into pruebap_distrito values (3, 'Wanchaq');
+
+insert into pruebap_entidad values ('12345678', 'Ana Torres Ríos', 'Av. Larco 123', 1, 1, '987654321', date '2025-01-15');
+insert into pruebap_entidad values ('23456789', 'Luis Pérez Soto', 'Calle Mercaderes 45', 2, 2, '976543210', date '2025-06-01');
+insert into pruebap_entidad values ('34567890', 'María Quispe Huamán', 'Av. de la Cultura 800', 3, 3, null, date '2026-02-10');
+-- dirección larga para la columna AUTO
+insert into pruebap_entidad values ('45678901', 'Carlos Ñique', rpad('Jr. Muy Largo ', 250, 'x'), 1, null, '014445555', date '2026-09-01');
+
+-- 2500 filas para probar el límite max_rows = 2000
+insert into pruebap_entidad (vdni, vnom, vdirec_actual, departamento_id, distrito_id, vnro_tlf1, fecha_registro)
+select lpad(to_char(50000000 + level), 8, '0'), 'Persona ' || level, 'Dirección ' || level,
+       mod(level, 3) + 1, mod(level, 3) + 1, '9' || lpad(level, 8, '0'),
+       date '2024-01-01' + mod(level, 900)
+  from dual connect by level <= 2500;
+commit;
+```
 
 ## Contrato de la plantilla
 
@@ -54,15 +101,15 @@ El campo `{{FIELD:UNIDAD}}` se declara en `fields` como constante:
 ]
 ```
 
-Para que el valor provenga de la página en lugar de una constante, cámbielo a `{"name": "UNIDAD", "source": "ITEM", "item": "P42_UNIDAD", "type": "VARCHAR2"}` y cree ese Page Item.
+Para que el valor provenga de la página en lugar de una constante, cámbielo a `{"name": "UNIDAD", "source": "ITEM", "item": "P70_UNIDAD", "type": "VARCHAR2"}` y cree ese Page Item.
 
 ## Binds lógicos y Page Items
 
 | Bind SQL | Page Item | Tipo |
 |---|---|---|
-| :DNI | P42_DNI | VARCHAR2 |
-| :DEPARTAMENTO_ID | P42_DEPARTAMENTO_ID | NUMBER |
-| :FECHA_DESDE | P42_FECHA_DESDE | DATE, máscara DD/MM/YYYY |
+| :DNI | P70_DNI | VARCHAR2 |
+| :DEPARTAMENTO_ID | P70_DEPARTAMENTO_ID | NUMBER |
+| :FECHA_DESDE | P70_FECHA_DESDE | DATE, máscara DD/MM/YYYY |
 
 Cada entrada de `bindings` relaciona un `:BIND` del SQL con un Page Item mediante las claves `bind` e `item`. El proceso generado no concatena estos valores en el SQL: `PKG_CORPORATE_REPORTS` los obtiene del estado de sesión y los añade como parámetros tipados de `APEX_EXEC`.
 
@@ -72,7 +119,7 @@ El proyecto declara además `P0_REPORT_FORMAT` y `P0_REPORT_ORIENTATION` en la p
 
 ## LOV: imprimir display, no return
 
-`P42_DEPARTAMENTO_ID` puede almacenar el identificador numérico del LOV. Ese valor sirve solo como filtro. El reporte imprime `d.descripcion AS departamento`, por lo que el PDF recibe el texto visible y no el ID.
+`P70_DEPARTAMENTO_ID` puede almacenar el identificador numérico del LOV. Ese valor sirve solo como filtro. El reporte imprime `d.descripcion AS departamento`, por lo que el PDF recibe el texto visible y no el ID.
 
 La misma regla debe aplicarse a cualquier otro LOV: la consulta del reporte debe hacer el `JOIN` correspondiente y seleccionar el display con el alias declarado en Word.
 

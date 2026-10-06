@@ -1,0 +1,6796 @@
+{
+  "schema_version": "layout/1.0",
+  "compiler": {
+    "name": "apex-word-report-compiler",
+    "version": "1.0.0"
+  },
+  "source": {
+    "file_name": "estado_cuenta.docx",
+    "sha256": "33f2249e4c765e973cb5838a5af25c73dce70daef1ea9874ba7090e5f18e42eb"
+  },
+  "report": {
+    "id": "ESTADO_CUENTA",
+    "title": "ESTADO DE CUENTA DEL ALUMNO",
+    "file_name": "estado_cuenta",
+    "package": "RPT_ESTADO_CUENTA"
+  },
+  "parameters": [
+    {
+      "name": "P_COD_ALUMNO",
+      "item": "P70_COD_ALUMNO",
+      "type": "VARCHAR2",
+      "format_mask": null,
+      "required": true
+    }
+  ],
+  "queries": {
+    "ALUMNO": {
+      "file": "q_alumno.sql",
+      "sql": "-- Q_ALUMNO: grupo maestro (una fila). Las columnas de fórmula (importe neto,\n-- cuota mensual, deuda total) van como expresiones del SELECT.\nselect a.cod_alumno,\n       a.carrera,\n       a.nombre,\n       a.fec_matricula,\n       a.modalidad,\n       a.sede,\n       a.costo_programa,\n       a.saldo_anterior,\n       a.seguro,\n       a.beca,\n       nvl(a.costo_programa, 0) + nvl(a.saldo_anterior, 0)\n         + nvl(a.seguro, 0) - nvl(a.beca, 0)            as importe_neto,\n       a.cuota_pension,\n       a.cuota_servicios,\n       a.cuota_pension + a.cuota_servicios              as cuota_mensual,\n       a.nro_cuotas,\n       a.servicios_total,\n       a.costo_programa + a.servicios_total             as deuda_total,\n       a.recargo_mensual\n  from pruebap_alumno a\n where a.cod_alumno = :P_COD_ALUMNO",
+      "binds": [
+        "P_COD_ALUMNO"
+      ]
+    },
+    "ATRASOS": {
+      "file": "q_atrasos.sql",
+      "sql": "-- Q_ATRASOS: meses con pago atrasado.\nselect a.anio,\n       lpad(a.mes, 2, '0')  as mes,\n       a.nro,\n       a.importe\n  from pruebap_alumno_atraso a\n where a.cod_alumno = :P_COD_ALUMNO\n order by a.nro",
+      "binds": [
+        "P_COD_ALUMNO"
+      ]
+    },
+    "CAJA": {
+      "file": "q_caja.sql",
+      "sql": "-- Q_CAJA: cuotas pagadas en caja.\nselect c.anio,\n       lpad(c.mes, 2, '0')                        as mes,\n       c.caja,\n       c.nro_cuota,\n       c.pension,\n       c.servicios,\n       c.descuento,\n       c.mora,\n       c.pension + c.servicios + nvl(c.mora, 0)   as total,\n       c.boleta,\n       c.pension + c.servicios                    as importe\n  from pruebap_alumno_cuota c\n where c.cod_alumno = :P_COD_ALUMNO\n   and c.estado = 'C'\n order by c.nro_cuota",
+      "binds": [
+        "P_COD_ALUMNO"
+      ]
+    },
+    "CUOTAS": {
+      "file": "q_cuotas.sql",
+      "sql": "-- Q_CUOTAS: cuotas por pagar.\nselect c.anio,\n       lpad(c.mes, 2, '0')        as mes,\n       c.caja,\n       c.nro_cuota,\n       c.pension,\n       c.servicios,\n       c.pension + c.servicios    as total\n  from pruebap_alumno_cuota c\n where c.cod_alumno = :P_COD_ALUMNO\n   and c.estado = 'P'\n order by c.nro_cuota",
+      "binds": [
+        "P_COD_ALUMNO"
+      ]
+    },
+    "RESUMEN": {
+      "file": "q_resumen.sql",
+      "sql": "-- Q_RESUMEN: columnas de resumen calculadas en SQL.\nselect r.*,\n       r.costo_total - r.pagos_caja - r.becas\n         - r.pagos_transferencia - nvl(r.otros_abonos, 0) + r.devoluciones   as saldo\n  from (select a.costo_programa + a.servicios_total                    as costo_total,\n               (select nvl(sum(c.pension + c.servicios), 0)\n                  from pruebap_alumno_cuota c\n                 where c.cod_alumno = a.cod_alumno\n                   and c.estado = 'C')                                 as pagos_caja,\n               nvl(a.beca, 0)                                          as becas,\n               (select nvl(sum(t.pension + t.servicios + nvl(t.mora, 0)), 0)\n                  from pruebap_alumno_transferencia t\n                 where t.cod_alumno = a.cod_alumno)                    as pagos_transferencia,\n               cast(null as number)                                    as otros_abonos,\n               0                                                       as devoluciones\n          from pruebap_alumno a\n         where a.cod_alumno = :P_COD_ALUMNO) r",
+      "binds": [
+        "P_COD_ALUMNO"
+      ]
+    },
+    "TRANSFERENCIAS": {
+      "file": "q_transferencias.sql",
+      "sql": "-- Q_TRANSFERENCIAS: pagos por transferencia bancaria.\nselect t.nro,\n       t.fecha,\n       t.nro_operacion,\n       t.nro_cuota,\n       t.pension,\n       t.servicios,\n       t.descuento,\n       t.mora,\n       t.pension + t.servicios + nvl(t.mora, 0)  as total\n  from pruebap_alumno_transferencia t\n where t.cod_alumno = :P_COD_ALUMNO\n order by t.nro",
+      "binds": [
+        "P_COD_ALUMNO"
+      ]
+    }
+  },
+  "constants": {
+    "SISTEMA": "ACADEMIA DEMO",
+    "MODULO": "Tesorería",
+    "CODIGO": "EDU-CTA-01"
+  },
+  "layout": {
+    "page": {
+      "w": 210.01,
+      "h": 297.0,
+      "mt": 26.0,
+      "mb": 50.01,
+      "ml": 14.99,
+      "mr": 14.99,
+      "hd": 6.0,
+      "fd": 43.99
+    },
+    "header": [
+      {
+        "k": "G",
+        "x": 0.0,
+        "w": [
+          59.99,
+          59.99,
+          59.99
+        ],
+        "pd": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rs": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:SISTEMA}}",
+                          "f": 1,
+                          "s": 6.0,
+                          "c": "000000"
+                        }
+                      ],
+                      [
+                        {
+                          "t": "{{FIELD:MODULO}}",
+                          "f": 1,
+                          "s": 6.0,
+                          "c": "000000"
+                        }
+                      ],
+                      [
+                        {
+                          "t": "{{FIELD:CODIGO}}",
+                          "f": 1,
+                          "s": 6.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{GENERATED_AT|DD/MM/YYYY}}",
+                          "f": 1,
+                          "s": 6.0,
+                          "c": "000000"
+                        }
+                      ],
+                      [
+                        {
+                          "t": "{{GENERATED_AT|HH:MI:SS AM}}",
+                          "f": 1,
+                          "s": 6.0,
+                          "c": "000000"
+                        }
+                      ],
+                      [
+                        {
+                          "t": "{{APP_USER}}",
+                          "f": 1,
+                          "s": 6.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "k": "P",
+        "al": "C",
+        "bf": 0.0,
+        "af": 0.0,
+        "es": 11.0,
+        "ln": [
+          [
+            {
+              "t": "{{REPORT_TITLE}}",
+              "f": 1,
+              "s": 10.0,
+              "c": "000000"
+            }
+          ]
+        ]
+      }
+    ],
+    "body": [
+      {
+        "k": "G",
+        "x": 0.0,
+        "w": [
+          23.99,
+          20.99,
+          22.0,
+          22.98,
+          20.99,
+          19.98,
+          24.99,
+          22.0
+        ],
+        "pd": [
+          0.79,
+          0.0,
+          0.79,
+          0.0
+        ],
+        "rs": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 8,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.75,
+                    "000000"
+                  ],
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.75,
+                    "000000"
+                  ],
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Alumno   :  {{FIELD:ALUMNO.COD_ALUMNO}}          {{FIELD:ALUMNO.CARRERA}}          ",
+                          "f": 1,
+                          "s": 8.5,
+                          "c": "000000"
+                        },
+                        {
+                          "t": "{{FIELD:ALUMNO.NOMBRE}}",
+                          "f": 3,
+                          "s": 8.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Código :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.COD_ALUMNO}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Costo Programa :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.COSTO_PROGRAMA|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Cuota Pensión :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.CUOTA_PENSION|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Programa : S/.",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ],
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.COSTO_PROGRAMA|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Fecha Matrícula :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.FEC_MATRICULA|DD/MM/YYYY}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Saldo Anterior :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.SALDO_ANTERIOR|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Cuota Servicios :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.CUOTA_SERVICIOS|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Servicios : S/.",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ],
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.SERVICIOS_TOTAL|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Modalidad :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.MODALIDAD}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Seguro :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.SEGURO|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Cuota Mensual",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.CUOTA_MENSUAL|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Deuda Total : S/.",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.DEUDA_TOTAL|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Sede :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.SEDE}}",
+                          "f": 3,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Beca :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.BECA|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ],
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.75,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Importe Neto :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.IMPORTE_NETO|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Nro Cuotas :",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.NRO_CUOTAS}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "FFFFFF"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Recargo Mensual %:",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "FFFFFF"
+                  ],
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:ALUMNO.RECARGO_MENSUAL|FM990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "k": "P",
+        "al": "L",
+        "bf": 0.0,
+        "af": 0.0,
+        "es": 6.0,
+        "ln": [
+          []
+        ]
+      },
+      {
+        "k": "D",
+        "q": "CAJA",
+        "x": 0.0,
+        "w": [
+          6.98,
+          11.39,
+          13.99,
+          13.9,
+          17.99,
+          16.0,
+          16.0,
+          13.99,
+          19.98,
+          23.99,
+          19.98
+        ],
+        "pd": [
+          0.79,
+          0.0,
+          0.79,
+          0.0
+        ],
+        "hd": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 5,
+                "fl": "BFBFBF",
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "PAGOS REGISTRADOS EN CAJA",
+                          "f": 3,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 8,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 9,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 10,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Año",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Mes",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Caja",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "N° Cuota",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Pensión",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Servicios",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Descuento",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Mora",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 8,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "TOTAL",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 9,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Boleta",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 10,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Importe",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "bd": {
+          "h": 0.0,
+          "hr": "auto",
+          "cs": [
+            {
+              "c": 0,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "L",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.ANIO}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 1,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.MES}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 2,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.CAJA}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 3,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.NRO_CUOTA}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 4,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.PENSION|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 5,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.SERVICIOS|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 6,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.DESCUENTO|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 7,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.MORA|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 8,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.TOTAL|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 9,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.BOLETA}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 10,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CAJA.IMPORTE|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "ft": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:CAJA.PENSION|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:CAJA.SERVICIOS|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:CAJA.MORA|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 8,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:CAJA.TOTAL|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 9,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 10,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "sm": [
+          "MORA",
+          "PENSION",
+          "SERVICIOS",
+          "TOTAL"
+        ]
+      },
+      {
+        "k": "P",
+        "al": "L",
+        "bf": 0.0,
+        "af": 0.0,
+        "es": 5.0,
+        "ln": [
+          []
+        ]
+      },
+      {
+        "k": "D",
+        "q": "CUOTAS",
+        "x": 0.0,
+        "w": [
+          6.98,
+          11.39,
+          13.99,
+          13.9,
+          17.99,
+          16.0,
+          29.99,
+          19.98
+        ],
+        "pd": [
+          0.79,
+          0.0,
+          0.79,
+          0.0
+        ],
+        "hd": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 5,
+                "fl": "BFBFBF",
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "CUOTAS POR PAGAR",
+                          "f": 3,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Año",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Mes",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Caja",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "N° Cuota",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Pensión",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Servicios",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "TOTAL",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "bd": {
+          "h": 0.0,
+          "hr": "auto",
+          "cs": [
+            {
+              "c": 0,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "L",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CUOTAS.ANIO}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 1,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CUOTAS.MES}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 2,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CUOTAS.CAJA}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 3,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CUOTAS.NRO_CUOTA}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 4,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CUOTAS.PENSION|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 5,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CUOTAS.SERVICIOS|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 6,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {},
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "L",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    []
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 7,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:CUOTAS.TOTAL|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "ft": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:CUOTAS.PENSION|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:CUOTAS.SERVICIOS|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:CUOTAS.TOTAL|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "sm": [
+          "PENSION",
+          "SERVICIOS",
+          "TOTAL"
+        ]
+      },
+      {
+        "k": "P",
+        "al": "L",
+        "bf": 0.0,
+        "af": 0.0,
+        "es": 5.0,
+        "ln": [
+          []
+        ]
+      },
+      {
+        "k": "D",
+        "q": "TRANSFERENCIAS",
+        "x": 0.0,
+        "w": [
+          6.98,
+          18.4,
+          20.99,
+          13.9,
+          17.99,
+          16.0,
+          16.0,
+          13.99,
+          19.98
+        ],
+        "pd": [
+          0.79,
+          0.0,
+          0.79,
+          0.0
+        ],
+        "hd": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 5,
+                "fl": "BFBFBF",
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "PAGOS POR TRANSFERENCIA BANCARIA",
+                          "f": 3,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 8,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "N°",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Fecha",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "N° Operación",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "N° Cuota",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Pensión",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Servicios",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Descuento",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Mora",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 8,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "TOTAL",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "bd": {
+          "h": 0.0,
+          "hr": "auto",
+          "cs": [
+            {
+              "c": 0,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:TRANSFERENCIAS.NRO}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 1,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:TRANSFERENCIAS.FECHA|DD/MM/YYYY}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 2,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:TRANSFERENCIAS.NRO_OPERACION}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 3,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:TRANSFERENCIAS.NRO_CUOTA}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 4,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:TRANSFERENCIAS.PENSION|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 5,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:TRANSFERENCIAS.SERVICIOS|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 6,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:TRANSFERENCIAS.DESCUENTO|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 7,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:TRANSFERENCIAS.MORA|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 8,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:TRANSFERENCIAS.TOTAL|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "ft": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:TRANSFERENCIAS.PENSION|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:TRANSFERENCIAS.SERVICIOS|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:TRANSFERENCIAS.DESCUENTO|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:TRANSFERENCIAS.MORA|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 8,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:TRANSFERENCIAS.TOTAL|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "sm": [
+          "DESCUENTO",
+          "MORA",
+          "PENSION",
+          "SERVICIOS",
+          "TOTAL"
+        ]
+      },
+      {
+        "k": "P",
+        "al": "L",
+        "bf": 0.0,
+        "af": 0.0,
+        "es": 5.0,
+        "ln": [
+          []
+        ]
+      },
+      {
+        "k": "D",
+        "q": "ATRASOS",
+        "x": 0.0,
+        "w": [
+          6.98,
+          11.39,
+          13.99,
+          13.9,
+          17.99,
+          16.0,
+          29.99,
+          19.98
+        ],
+        "pd": [
+          0.79,
+          0.0,
+          0.79,
+          0.0
+        ],
+        "hd": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 5,
+                "fl": "BFBFBF",
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "MESES CON PAGO ATRASADO",
+                          "f": 3,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Año",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Mes",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "N°",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Importe",
+                          "f": 3,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "bd": {
+          "h": 0.0,
+          "hr": "auto",
+          "cs": [
+            {
+              "c": 0,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "L",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:ATRASOS.ANIO}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 1,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "C",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:ATRASOS.MES}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 2,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {},
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "L",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    []
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 3,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:ATRASOS.NRO}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 4,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {},
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "L",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    []
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 5,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {},
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "L",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    []
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 6,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {},
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "L",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    []
+                  ]
+                }
+              ]
+            },
+            {
+              "c": 7,
+              "sp": 1,
+              "fl": null,
+              "va": "T",
+              "b": {
+                "b": [
+                  0.25,
+                  "D9D9D9"
+                ]
+              },
+              "ps": [
+                {
+                  "k": "P",
+                  "al": "R",
+                  "bf": 0.0,
+                  "af": 0.0,
+                  "es": 6.0,
+                  "ln": [
+                    [
+                      {
+                        "t": "{{COLUMN:ATRASOS.IMPORTE|FM999G999G990D00}}",
+                        "f": 1,
+                        "s": 7.0,
+                        "c": "000000"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "ft": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 5,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 6,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 7,
+                "sp": 1,
+                "fl": "D9D9D9",
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{SUM:ATRASOS.IMPORTE|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "sm": [
+          "IMPORTE"
+        ]
+      },
+      {
+        "k": "P",
+        "al": "L",
+        "bf": 0.0,
+        "af": 0.0,
+        "es": 5.0,
+        "ln": [
+          []
+        ]
+      },
+      {
+        "k": "G",
+        "x": 27.53,
+        "w": [
+          84.98,
+          11.99,
+          27.99
+        ],
+        "pd": [
+          1.5,
+          0.0,
+          1.5,
+          0.0
+        ],
+        "rs": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 3,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.75,
+                    "000000"
+                  ],
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "RESUMEN DE LA CUENTA DEL ALUMNO",
+                          "f": 2,
+                          "s": 8.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Costo total del programa",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "+",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:RESUMEN.COSTO_TOTAL|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Pagos registrados en caja",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "-",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:RESUMEN.PAGOS_CAJA|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Becas y descuentos",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "-",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:RESUMEN.BECAS|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Pagos por transferencia bancaria",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "-",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:RESUMEN.PAGOS_TRANSFERENCIA|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Otros abonos",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "-",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:RESUMEN.OTROS_ABONOS|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "l": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Devoluciones",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {},
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "+",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:RESUMEN.DEVOLUCIONES|FM999G999G990D00}}",
+                          "f": 1,
+                          "s": 7.5,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "l": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Saldo Pendiente",
+                          "f": 3,
+                          "s": 8.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "S/",
+                          "f": 3,
+                          "s": 8.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "b": [
+                    0.75,
+                    "000000"
+                  ],
+                  "r": [
+                    0.75,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "R",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{FIELD:RESUMEN.SALDO|FM999G999G990D00}}",
+                          "f": 2,
+                          "s": 8.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "k": "P",
+        "al": "L",
+        "bf": 0.0,
+        "af": 0.0,
+        "es": 2.0,
+        "ln": [
+          []
+        ]
+      }
+    ],
+    "footer": [
+      {
+        "k": "G",
+        "x": 0.0,
+        "w": [
+          78.0,
+          4.99,
+          6.98,
+          4.99,
+          65.99
+        ],
+        "pd": [
+          0.49,
+          0.0,
+          0.49,
+          0.0
+        ],
+        "rs": [
+          {
+            "h": 0.0,
+            "hr": "auto",
+            "cs": [
+              {
+                "c": 0,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    1.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "Generado por {{APP_USER}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 1,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{PAGE}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 2,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    1.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "DE",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 3,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    0.5,
+                    "000000"
+                  ],
+                  "b": [
+                    0.5,
+                    "000000"
+                  ],
+                  "l": [
+                    0.5,
+                    "000000"
+                  ],
+                  "r": [
+                    0.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "C",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      [
+                        {
+                          "t": "{{PAGES}}",
+                          "f": 1,
+                          "s": 7.0,
+                          "c": "000000"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "c": 4,
+                "sp": 1,
+                "fl": null,
+                "va": "T",
+                "b": {
+                  "t": [
+                    1.5,
+                    "000000"
+                  ]
+                },
+                "ps": [
+                  {
+                    "k": "P",
+                    "al": "L",
+                    "bf": 0.0,
+                    "af": 0.0,
+                    "es": 6.0,
+                    "ln": [
+                      []
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

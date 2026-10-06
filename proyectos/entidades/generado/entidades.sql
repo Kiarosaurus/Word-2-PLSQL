@@ -4,10 +4,10 @@ select e.vdni          as vdni,
        d.descripcion   as departamento,
        di.descripcion  as distrito,
        e.vnro_tlf1     as vnro_tlf1
-  from entidad e
-  left join mae_departamento d
+  from pruebap_entidad e
+  left join pruebap_departamento d
     on d.id = e.departamento_id
-  left join mae_distrito di
+  left join pruebap_distrito di
     on di.id = e.distrito_id
  where (:DNI is null or e.vdni = :DNI)
    and (:DEPARTAMENTO_ID is null or e.departamento_id = :DEPARTAMENTO_ID)

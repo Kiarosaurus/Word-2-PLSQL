@@ -638,3 +638,88 @@ Diagnóstico | Revisar APEX Debug | el mensaje del package indica el bind, colum
 - Revise rendimiento y permisos del SQL antes de promover.
 
 La carpeta `proyectos\entidades` contiene un proyecto completo, con su documentación, que sirve como punto de partida; `templates` contiene dos plantillas de referencia, vertical y horizontal, que usan los cinco tipos de marcador.
+
+## 13. Modo layout: varias tablas y maquetación libre
+
+El modo descrito en las secciones 4 a 12 usa `APEX_DATA_EXPORT` y admite una sola tabla. Para reportes como los de Oracle Reports con varias tablas, cuadrículas, recuadros, totales y número de página existe el **modo layout**: el compilador traduce el Word completo y lo imprime un motor PDF escrito en PL/SQL (`RPT_PDF` + `RPT_LAYOUT`), sin Java, sin servidores de impresión y sin licencias. El compilador elige el modo según el proyecto: `corporate-layout-project/1.0` activa el modo layout.
+
+```flujo
+# Figura 6. Modo layout
+Informática | Diseñar el Word con varias tablas | maquetación con bordes visibles, blancos o sin borde
+Compilador | Nuevo proyecto desde DOCX | crea generado\q_<consulta>.sql por cada consulta y el .report.json
+Informática | Pegar en cada q_<consulta>.sql la Query del reporte original | mismos binds :P_NOMBRE; edición mínima
+Compilador | Compilar | genera rpt_<reporte>.sql y apex_process.sql junto al DOCX
+APEX | Instalar el motor (una vez) y el package del reporte | sql\prototipo_pdf\install_motor.sql
+Usuario final | Descargar | el package ejecuta las consultas y dibuja el PDF
+```
+
+### 13.1 Qué admite el Word
+
+| Elemento | Cómo se escribe en Word | Resultado |
+|---|---|---|
+| Tabla de datos | Una fila con {{COLUMN:CONSULTA.COLUMNA}}; las filas anteriores son cabecera y las posteriores, totales | Una fila por registro; la cabecera se repite en cada página |
+| Totales | {{SUM:CONSULTA.COLUMNA}} en las filas posteriores | Suma de la columna en la tabla |
+| Campo de una consulta | {{FIELD:CONSULTA.COLUMNA}} en cualquier párrafo o celda | Primera fila de la consulta (grupo maestro) |
+| Parámetro o constante | {{FIELD:NOMBRE}} | Valor del parámetro o de constants |
+| Número de página | {{PAGE}} y {{PAGES}}, solo en el encabezado o pie de Word | 1 DE 3 |
+| Formato | Barra vertical y máscara al final del marcador (ver el ejemplo comentado) | TO_CHAR con esa máscara, por ejemplo FM999G999G990D00 |
+| Maquetación | Tablas sin {{COLUMN:...}}, con bordes por celda: visibles, blancos o sin borde; rellenos; celdas combinadas en horizontal | Se dibujan tal cual |
+| Encabezado y pie | Párrafos y tablas en el encabezado/pie de Word | Se repiten en cada página |
+
+Se mantienen las restricciones de seguridad del modo simple (sin imágenes, macros, campos de Word ni contenido externo). No se admiten celdas combinadas en vertical ni tablas anidadas, y el texto de una celda no se parte en varias líneas automáticamente: use saltos de línea manuales. Las fuentes se imprimen como Helvetica.
+
+Ejemplo comentado (extracto de `proyectos\estado_cuenta\estado_cuenta.docx`, un ejemplo ficticio):
+
+```
+Encabezado de Word:  {{FIELD:SISTEMA}}         ...        {{GENERATED_AT|DD/MM/YYYY}}
+                     {{REPORT_TITLE}}                      <- se repite en cada página
+
+Cuerpo:
+| Alumno : {{FIELD:ALUMNO.COD_ALUMNO}}  {{FIELD:ALUMNO.NOMBRE}}            |  <- celda combinada, fondo gris
+| Código :      | {{FIELD:ALUMNO.COD_ALUMNO}}     | Costo Programa : | ...  |  <- borde blanco entre etiqueta y valor
+
+| CUOTAS POR PAGAR (banda gris)        |                                       <- cabecera, fila 1
+| Año | Mes | N° Cuota | Pensión | TOTAL |                                    <- cabecera, fila 2
+| {{COLUMN:CUOTAS.ANIO}} | ... | {{COLUMN:CUOTAS.TOTAL|FM999G999G990D00}} |    <- se repite por registro
+|     |     |          | {{SUM:CUOTAS.PENSION|...}} | {{SUM:CUOTAS.TOTAL|...}} |  <- totales
+
+Pie de Word:  Generado por {{APP_USER}}   [{{PAGE}}] DE [{{PAGES}}]
+```
+
+### 13.2 El proyecto: una consulta por archivo, como el Data Model
+
+```
+{
+  "schema": "corporate-layout-project/1.0",
+  "report_id": "ESTADO_CUENTA",                // nombra el package: RPT_ESTADO_CUENTA
+  "template": "../estado_cuenta.docx",
+  "title": "ESTADO DE CUENTA DEL ALUMNO",
+  "parameters": [                              // User Parameters del reporte
+    {"name": "P_COD_ALUMNO", "item": "P70_COD_ALUMNO", "type": "VARCHAR2", "required": true}
+  ],
+  "queries": {                                 // Queries del Data Model, una por archivo
+    "ALUMNO":   "q_alumno.sql",
+    "CUOTAS":   "q_cuotas.sql"
+  },
+  "constants": {"SISTEMA": "ACADEMIA DEMO"}    // textos fijos usados como {{FIELD:SISTEMA}}
+}
+```
+
+| Oracle Reports | Modo layout |
+|---|---|
+| User Parameter | parameters (Page Item y tipo); en SQL sigue siendo :P_NOMBRE |
+| System Parameter | {{APP_USER}}, {{GENERATED_AT}}, {{PAGE}}, {{PAGES}} |
+| Query | Un archivo generado\q_<nombre>.sql con el mismo SELECT |
+| Group maestro | {{FIELD:CONSULTA.COLUMNA}} (primera fila) |
+| Group repetitivo | Tabla de datos con {{COLUMN:CONSULTA.COLUMNA}} |
+| Formula Column | Expresión en el SELECT (o función PL/SQL llamada desde el SELECT) |
+| Summary Column | {{SUM:...}} en la tabla, o SUM en una consulta de resumen |
+| Data Link | El mismo parámetro :P_NOMBRE en la consulta hija |
+
+### 13.3 Instalación y publicación
+
+1. Una vez por esquema: `sql\prototipo_pdf\install_motor.sql` (o los cuatro archivos `rpt_pdf.*` y `rpt_layout.*` en SQL Workshop).
+2. Por reporte: ejecute `proyectos\<nombre>\rpt_<reporte>.sql` en SQL Workshop cada vez que recompile.
+3. Cree los Page Items de `parameters`, el botón (Submit Page, Reload on Submit: Always) y el proceso con `apex_process.sql`, igual que en la sección 9.
+
+El ejemplo ficticio `proyectos\estado_cuenta` (estado de cuenta de un alumno de una academia de demostración) usa las tablas de prueba `PRUEBAP_ALUMNO*`; `sql\prototipo_pdf\pruebap_estado_cuenta_datos.sql` las crea solo si no existen y nunca borra datos. `proyectos\estado_cuenta\ejemplo_estado_cuenta.pdf` muestra el resultado.

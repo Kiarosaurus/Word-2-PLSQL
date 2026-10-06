@@ -18,23 +18,23 @@
     "file_name": "reporte_entidades"
   },
   "query": {
-    "sql": "select e.vdni          as vdni,\n       e.vnom          as vnom,\n       e.vdirec_actual as vdirec_actual,\n       d.descripcion   as departamento,\n       di.descripcion  as distrito,\n       e.vnro_tlf1     as vnro_tlf1\n  from entidad e\n  left join mae_departamento d\n    on d.id = e.departamento_id\n  left join mae_distrito di\n    on di.id = e.distrito_id\n where (:DNI is null or e.vdni = :DNI)\n   and (:DEPARTAMENTO_ID is null or e.departamento_id = :DEPARTAMENTO_ID)\n   and (:FECHA_DESDE is null or e.fecha_registro >= :FECHA_DESDE)\n order by e.vnom",
+    "sql": "select e.vdni          as vdni,\n       e.vnom          as vnom,\n       e.vdirec_actual as vdirec_actual,\n       d.descripcion   as departamento,\n       di.descripcion  as distrito,\n       e.vnro_tlf1     as vnro_tlf1\n  from pruebap_entidad e\n  left join pruebap_departamento d\n    on d.id = e.departamento_id\n  left join pruebap_distrito di\n    on di.id = e.distrito_id\n where (:DNI is null or e.vdni = :DNI)\n   and (:DEPARTAMENTO_ID is null or e.departamento_id = :DEPARTAMENTO_ID)\n   and (:FECHA_DESDE is null or e.fecha_registro >= :FECHA_DESDE)\n order by e.vnom",
     "bindings": [
       {
         "bind": "DNI",
-        "item": "P42_DNI",
+        "item": "P70_DNI",
         "type": "VARCHAR2",
         "required": false
       },
       {
         "bind": "DEPARTAMENTO_ID",
-        "item": "P42_DEPARTAMENTO_ID",
+        "item": "P70_DEPARTAMENTO_ID",
         "type": "NUMBER",
         "required": false
       },
       {
         "bind": "FECHA_DESDE",
-        "item": "P42_FECHA_DESDE",
+        "item": "P70_FECHA_DESDE",
         "type": "DATE",
         "required": false,
         "format_mask": "DD/MM/YYYY"

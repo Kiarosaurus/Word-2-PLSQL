@@ -31,6 +31,7 @@ class CompilationResult:
     sql: str | None = None
     definition: dict[str, Any] | None = None
     artifacts: tuple[Path, ...] = ()
+    kind: str = "table"           # "table" (APEX_DATA_EXPORT) o "layout" (motor PDF PL/SQL)
 
     @property
     def valid(self) -> bool:
@@ -56,6 +57,10 @@ def validate_project(
 ) -> CompilationResult:
     """Valida un proyecto completo sin crear ni modificar archivos de salida."""
 
+    from .layout_compiler import is_layout_project, validate_layout_project
+
+    if is_layout_project(Path(project_path).expanduser()):
+        return validate_layout_project(Path(project_path), strict=strict)
     path = Path(project_path).expanduser().resolve()
     diagnostics = Diagnostics(strict=strict)
     _raw, template_path, query_path = locate_project_inputs(path, diagnostics)
@@ -203,6 +208,15 @@ def compile_project(
     ``output_directory``.
     """
 
+    from .layout_compiler import compile_layout_project, is_layout_project
+
+    if is_layout_project(Path(project_path).expanduser()):
+        return compile_layout_project(
+            Path(project_path),
+            Path(output_directory),
+            strict=strict,
+            process_directory=Path(process_directory) if process_directory is not None else None,
+        )
     result = validate_project(project_path, strict=strict)
     if not result.valid:
         return result

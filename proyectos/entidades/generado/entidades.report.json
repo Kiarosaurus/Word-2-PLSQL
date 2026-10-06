@@ -12,19 +12,19 @@
   "bindings": [
     {
       "bind": "DNI",
-      "item": "P42_DNI",
+      "item": "P70_DNI",
       "type": "VARCHAR2",
       "required": false
     },
     {
       "bind": "DEPARTAMENTO_ID",
-      "item": "P42_DEPARTAMENTO_ID",
+      "item": "P70_DEPARTAMENTO_ID",
       "type": "NUMBER",
       "required": false
     },
     {
       "bind": "FECHA_DESDE",
-      "item": "P42_FECHA_DESDE",
+      "item": "P70_FECHA_DESDE",
       "type": "DATE",
       "format_mask": "DD/MM/YYYY",
       "required": false

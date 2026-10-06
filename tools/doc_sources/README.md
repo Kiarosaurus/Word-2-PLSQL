@@ -30,6 +30,11 @@ DNI              Nombre completo   ...   <- fila 1: etiquetas literales
 Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}   <- pie de página de Word
 ```
 
+## Dos modos
+
+- **Modo simple** (`corporate-report-project/1.0`): un título, una tabla y un pie, impresos con `APEX_DATA_EXPORT`. También genera XLSX.
+- **Modo layout** (`corporate-layout-project/1.0`): varias tablas, cuadrículas con bordes visibles, blancos o sin borde, totales y número de página, impresos por el motor PDF en PL/SQL (`sql/prototipo_pdf`). Una consulta por archivo, como el Data Model de Oracle Reports. Ejemplo ficticio: `proyectos/estado_cuenta`. Ver Manual de uso, sección 13.
+
 ## Flujo de trabajo
 
 ```flujo

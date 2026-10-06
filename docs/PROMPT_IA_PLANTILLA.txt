@@ -1,0 +1,291 @@
+=====================================================================
+PROMPT: PLANTILLA WORD A PARTIR DE CAPTURAS DE UN REPORTE ORACLE
+Copie todo lo que está debajo de la línea y adjunte las capturas.
+=====================================================================
+
+Eres un especialista en migrar reportes de Oracle Forms/Reports a Oracle APEX 24.2. Te adjunto una o dos capturas de un mismo reporte:
+
+- Captura RENDERIZADA (la salida impresa con datos): úsala para los textos visibles, el orden, las etiquetas, la orientación y la apariencia.
+- Captura de DISEÑO (el layout del editor de Oracle Reports, con nombres de campo como F_xxx, CF_xxx, CS_xxx, CP_xxx): úsala para derivar los nombres técnicos.
+
+Si solo hay una, trabaja con ella.
+
+OBJETIVO
+Generar una PLANTILLA WORD (.docx) que sea la base más parecida posible al reporte original y que cumpla EXACTAMENTE el lenguaje restringido de nuestro compilador. El equipo de Informática la va a mejorar después. Prefiero una plantilla que el compilador valide a la primera, aunque simplifique el diseño, antes que una copia visual que el compilador rechace.
+
+El compilador NO convierte Word a PDF. Lee la plantilla y la traduce a una llamada de APEX_DATA_EXPORT, que solo sabe dibujar:
+(1) un encabezado de texto, (2) UNA tabla de filas repetidas y (3) un pie de texto.
+Todo el diseño original debe "aplanarse" en esas tres zonas.
+
+---------------------------------------------------------------------
+1. REGLAS OBLIGATORIAS DEL DOCX (si se incumple una, el compilador lo rechaza)
+---------------------------------------------------------------------
+Estructura:
+- Papel A4 (21 x 29,7 cm), vertical u horizontal. Una sola sección.
+- El encabezado de página de Word (header) debe quedar VACÍO.
+- En el cuerpo, exactamente en este orden:
+  a) UN ÚNICO párrafo con texto (el "párrafo de título"). Las líneas se separan con saltos de línea manuales (Mayús+Intro / <w:br/>), NUNCA con párrafos nuevos. Pueden existir párrafos vacíos, pero solo uno con texto.
+  b) UNA ÚNICA tabla, de EXACTAMENTE 2 filas y de 1 a 50 columnas.
+  c) Nada con texto después de la tabla.
+- El pie de página de Word (footer): como máximo UN párrafo con texto.
+
+Marcadores (los únicos que existen; todo lo demás entre {{ }} es error):
+- {{REPORT_TITLE}}: exactamente UNA vez, en el párrafo de título.
+- {{FIELD:NOMBRE}}: valor escalar. Solo en el párrafo de título o en el pie.
+- {{COLUMN:ALIAS}}: solo en la fila 2 de la tabla; cada celda de la fila 2 contiene ÚNICAMENTE un marcador, sin otro texto.
+- {{APP_USER}}: usuario de APEX. En el título o en el pie.
+- {{GENERATED_AT}}: fecha y hora de generación. En el título o en el pie.
+- NOMBRE y ALIAS: mayúsculas, empiezan con letra, solo A-Z, 0-9 y _, máximo 30 caracteres, sin repetir. Prohibido usar REPORT_TITLE, APP_USER o GENERATED_AT como FIELD.
+- Sin espacios dentro de las llaves. Nunca uses el espacio de no separación.
+- Un mismo FIELD puede repetirse; un ALIAS no.
+
+Tabla:
+- Fila 1: etiquetas visibles, texto literal no vacío, máximo 255 bytes, sin marcadores.
+- Fila 2: {{COLUMN:ALIAS}} por celda (es un prototipo: en el PDF se repite una vez por cada fila del SELECT).
+- Sin celdas combinadas (ni horizontal ni vertical), sin tablas anidadas, sin una segunda tabla. Tampoco tablas "de maquetación" con bordes blancos o invisibles para ordenar la cabecera: siguen siendo tablas y el compilador las rechaza. La cabecera se ordena solo con líneas de texto.
+- Todas las celdas de la fila 1 con el MISMO estilo (fuente, tamaño, negrita, color, alineación) y el MISMO fondo.
+- Todas las celdas de la fila 2 con la misma fuente, tamaño, peso, color y fondo. La alineación SÍ puede variar por columna (números a la derecha, códigos al centro, texto a la izquierda).
+- Borde simple y uniforme en toda la tabla.
+
+Formato:
+- Fuentes permitidas: Arial, Calibri, Aptos, Helvetica, Times New Roman, Cambria, Georgia, Courier New, Consolas. Recomendado: Arial.
+- Solo normal o negrita. PROHIBIDO: cursiva, subrayado, tachado (el original los usa; reemplázalos por negrita o nada).
+- Cada zona tiene UN solo estilo: todo el párrafo de título con la misma fuente/tamaño/negrita/color (no se puede poner un subtítulo en negrita y el resto normal); todo el pie con un solo estilo.
+- Tamaños: título 8 a 24 pt; fila 1 de 6 a 16 pt; fila 2 de 6 a 14 pt; pie de 6 a 12 pt.
+- Colores sólidos. El título siempre se centra.
+- Longitud máxima: el párrafo de título 4000 bytes y el pie 4000 bytes (antes de sustituir valores).
+
+Prohibido en cualquier parte: imágenes, logos, formas, líneas dibujadas, cuadros de texto, WordArt, SmartArt, gráficos, campos de Word (número de página, fecha automática, PAGE, NUMPAGES), controles de contenido, comentarios, notas al pie, control de cambios, texto oculto, hipervínculos, macros, ecuaciones, símbolos insertados, tablas en el encabezado o pie.
+
+---------------------------------------------------------------------
+2. CÓMO APLANAR EL REPORTE ORIGINAL
+---------------------------------------------------------------------
+a) Datos repetidos (el bloque de detalle que tiene una fila por registro, por ejemplo AMORTIZACIONES):
+   -> es LA tabla. Fila 1 = encabezados de columna del original; fila 2 = {{COLUMN:ALIAS}}.
+   - Si hay varios grupos de detalle con las mismas columnas (por ejemplo "Planilla", "Moras", "Regularización"), usa UNA sola tabla y agrega como primera columna una etiqueta "Grupo" con {{COLUMN:GRUPO}}.
+   - Los subtotales por grupo y los totales generales NO se pueden dibujar dentro de la tabla. Pásalos a {{FIELD:...}} en el párrafo de título (por ejemplo "Total amortizado: {{FIELD:TOTAL_AMORTIZADO}}").
+   - Si el detalle tiene más de 50 columnas, quédate con las 50 más importantes y lista las omitidas.
+
+b) Datos de cabecera (los campos sueltos que aparecen una sola vez: titular, DNI, montos, fechas, saldos, garantes…):
+   -> van como {{FIELD:NOMBRE}} dentro del ÚNICO párrafo de título, uno debajo del otro con saltos de línea manuales.
+   - Conserva los títulos de sección del original como líneas de texto ("DATOS DEL SOLICITANTE", "DATOS DEL PRÉSTAMO", "LIQUIDACIÓN"…), con el mismo estilo que el resto, porque no hay negrita por línea.
+   - Agrupa en cada línea los campos que en el original están en la misma fila visual, separados con " · ". Ejemplo:
+     Titular: {{FIELD:TITULAR}} {{FIELD:NOM_ADM}} · Grd.Rem: {{FIELD:GRD_REM}} · Edad: {{FIELD:EDAD}}
+   - Los bloques que en el original están en columnas lado a lado (LIQUIDACIÓN | CUOTA | DEUDA INICIAL | SALDO PENDIENTE) se escriben uno debajo del otro, en orden de izquierda a derecha.
+   - Las etiquetas fijas del original ("Titular:", "Edad:") se copian como texto literal.
+   - Vigila el límite de 4000 bytes. Si no alcanza, prioriza la identificación (titular, documento, número de préstamo) y los importes.
+   - Usa un tamaño de letra pequeño (8 o 9 pt) si hay muchos campos.
+
+
+c) Título: el texto del título original NO se escribe en el Word: va {{REPORT_TITLE}}; el texto lo configura Informática después.
+
+d) Pie de página:
+   - Código del reporte y textos fijos: literal ("PFR201_3").
+   - "Reporte generado por <usuario>" -> {{APP_USER}}.
+   - Fecha y hora de impresión -> {{GENERATED_AT}} (una sola marca, ya incluye fecha y hora).
+   - "PÁG. X DE Y": NO se puede (los campos de Word están prohibidos). Omítelo.
+   Ejemplo: PFR201_3 · Reporte generado por {{APP_USER}} · {{GENERATED_AT}}
+
+e) Orientación: horizontal si la tabla tiene más de unas 8 columnas o si el original es horizontal.
+
+f) Lo que no se puede representar (cajas, recuadros, líneas "=====", colores por celda, varias tablas, imágenes, campos condicionales, formato por fragmento) se simplifica. No inventes datos ni campos que no estén en las capturas.
+
+---------------------------------------------------------------------
+3. NOMBRES TÉCNICOS
+---------------------------------------------------------------------
+- Si hay captura de diseño: deriva cada nombre del campo de Oracle quitando los prefijos F_, CF_, CS_ o CP_ y el sufijo numérico final cuando no sea necesario para distinguir: F_nom_adm1 -> NOM_ADM; F_fec_baj1 -> FEC_BAJ; CF_sit_per1 -> SIT_PER; F_cuo_capital2 -> CUO_CAPITAL. Si dos campos quedan con el mismo nombre, conserva el número (F_deuda2 y F_deuda5 -> DEUDA2 y DEUDA5).
+- Si el nombre está cortado en la captura (por ejemplo "_edad1" u "o_aporte"), usa el nombre más probable.
+- Sin captura de diseño: deriva el nombre de la etiqueta (Imp. Cuota -> IMP_CUOTA; N° Docum -> NRO_DOC; Año -> ANIO, sin Ñ ni tildes).
+- Evita palabras reservadas de Oracle como alias (DATE, LEVEL, NUMBER, ORDER, USER, SIZE…): usa FECHA, NIVEL, NUMERO, etc.
+
+---------------------------------------------------------------------
+4. QUÉ DEBES ENTREGAR: SOLO EL ARCHIVO .DOCX
+---------------------------------------------------------------------
+- Entrega ÚNICAMENTE el archivo .docx para descargar. Nada más.
+- NO entregues SQL, JSON, Markdown, tablas de mapeo, listas de pérdidas, explicaciones ni resúmenes. No crees otros archivos. El SQL y la configuración los hace el equipo de Informática con su propia herramienta.
+- Para generarlo, ejecuta el SCRIPT DE REFERENCIA de la sección 5 cambiando SOLO el bloque DISEÑO. No quites las funciones técnicas: python-docx crea por defecto páginas tamaño Carta (no A4) e incluye una parte customXml que el compilador rechaza; el script corrige ambas cosas.
+- Si no puedes ejecutar código ni adjuntar archivos, entonces (y solo entonces) responde únicamente con el script completo, con el bloque DISEÑO rellenado, para que yo lo ejecute con: pip install python-docx && python plantilla.py
+- Nombra el archivo con el código del reporte que se ve en la captura (por ejemplo PFR201_3.docx).
+- Antes de entregarlo, revisa en silencio que cumpla la sección 1. No me muestres esa revisión.
+
+---------------------------------------------------------------------
+5. SCRIPT DE REFERENCIA (probado contra el compilador; edite solo DISEÑO)
+---------------------------------------------------------------------
+"""Genera una plantilla Word compatible con el compilador APEX (contrato 1.0).
+
+Edite solo el bloque DISEÑO; el resto aplica las reglas técnicas.
+Requiere: pip install python-docx
+"""
+import io
+import re
+import zipfile
+
+from docx import Document
+from docx.enum.section import WD_ORIENT
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Cm, Pt, RGBColor
+
+# ---------------------------------------------------------------- DISEÑO ---
+SALIDA = "PFR201_3.docx"
+HORIZONTAL = True
+FUENTE = "Arial"
+# Párrafo de título: cada elemento es una línea (salto de línea manual).
+TITULO = [
+    "{{REPORT_TITLE}}",
+    "DATOS DEL SOLICITANTE",
+    "Titular: {{FIELD:TITULAR}} {{FIELD:NOM_ADM}} · DNI: {{FIELD:DNI}} · Grd.Rem: {{FIELD:GRD_REM}} · Edad: {{FIELD:EDAD}}",
+    "DATOS DEL PRÉSTAMO",
+    "N° de Préstamo: {{FIELD:NRO_CHE}} · Tipo: {{FIELD:TIPO}} · Fec. Préstamo: {{FIELD:FEC_PRESTAMO}}",
+]
+TITULO_PT, TITULO_NEGRITA, TITULO_COLOR = 9, True, "000000"
+# Tabla: (etiqueta fila 1, ALIAS fila 2, ancho cm, alineación del cuerpo)
+COLUMNAS = [
+    ("N°", "NRO", 0.9, "CENTER"),
+    ("N° Docum", "NRO_DOC", 2.0, "LEFT"),
+    ("Año", "ANIO", 1.0, "CENTER"),
+    ("Mes", "MES", 0.9, "CENTER"),
+    ("Imp. Cuota", "IMP_CUOTA", 1.8, "RIGHT"),
+    ("Observaciones", "OBSERVACIONES", 4.0, "LEFT"),
+]
+CABECERA_PT, CABECERA_COLOR, CABECERA_FONDO = 7, "000000", "D9D9D9"
+CUERPO_PT, CUERPO_COLOR, CUERPO_FONDO = 7, "000000", "FFFFFF"
+BORDE_COLOR, BORDE_OCTAVOS_PT = "808080", 4          # 4 = 0.5 pt
+PIE = "PFR201_3 · Reporte generado por {{APP_USER}} · {{GENERATED_AT}}"
+PIE_PT, PIE_COLOR = 7, "404040"
+# ---------------------------------------------------------------------------
+
+ALINEAR = {"LEFT": WD_ALIGN_PARAGRAPH.LEFT, "CENTER": WD_ALIGN_PARAGRAPH.CENTER,
+           "RIGHT": WD_ALIGN_PARAGRAPH.RIGHT}
+
+
+def estilo(run, pt, negrita, color):
+    run.font.name = FUENTE
+    run.font.size = Pt(pt)
+    run.font.bold = negrita
+    run.font.color.rgb = RGBColor.from_string(color)
+    fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+    fonts.set(qn("w:ascii"), FUENTE)
+    fonts.set(qn("w:hAnsi"), FUENTE)
+
+
+def fondo(celda, color):
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), color)
+    celda._tc.get_or_add_tcPr().append(shd)
+
+
+def bordes(tabla):
+    nodo = OxmlElement("w:tblBorders")
+    for lado in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        b = OxmlElement(f"w:{lado}")
+        b.set(qn("w:val"), "single")
+        b.set(qn("w:sz"), str(BORDE_OCTAVOS_PT))
+        b.set(qn("w:space"), "0")
+        b.set(qn("w:color"), BORDE_COLOR)
+        nodo.append(b)
+    tabla._tbl.tblPr.append(nodo)
+
+
+def validar_diseno():
+    ident = re.compile(r"^[A-Z][A-Z0-9_$#]{0,29}$")
+    reservados = {"REPORT_TITLE", "APP_USER", "GENERATED_AT"}
+    texto = "\n".join(TITULO)
+    assert texto.count("{{REPORT_TITLE}}") == 1, "REPORT_TITLE debe aparecer una vez"
+    assert len(texto.encode("utf-8")) <= 4000, "el título supera 4000 bytes"
+    assert len(PIE.encode("utf-8")) <= 4000, "el pie supera 4000 bytes"
+    assert "{{REPORT_TITLE}}" not in PIE, "REPORT_TITLE no va en el pie"
+    for marca in re.findall(r"\{\{(.*?)\}\}", texto + PIE):
+        if marca in reservados:
+            continue
+        assert marca.startswith("FIELD:"), f"marcador no permitido fuera de la tabla: {marca}"
+        nombre = marca[6:]
+        assert ident.match(nombre) and nombre not in reservados, f"FIELD inválido: {nombre}"
+    alias = [c[1] for c in COLUMNAS]
+    assert 1 <= len(alias) <= 50 and len(set(alias)) == len(alias), "columnas: 1 a 50, sin repetir"
+    for etiqueta, nombre, _, _ in COLUMNAS:
+        assert ident.match(nombre), f"ALIAS inválido: {nombre}"
+        assert etiqueta.strip() and "{{" not in etiqueta, f"etiqueta vacía o con marcador: {etiqueta!r}"
+        assert len(etiqueta.encode("utf-8")) <= 255, f"etiqueta > 255 bytes: {etiqueta}"
+
+
+def construir():
+    doc = Document()
+    seccion = doc.sections[0]
+    ancho, alto = Cm(21.0), Cm(29.7)                      # A4: python-docx usa Carta por defecto
+    if HORIZONTAL:
+        seccion.orientation = WD_ORIENT.LANDSCAPE
+        ancho, alto = alto, ancho
+    seccion.page_width, seccion.page_height = ancho, alto
+    for margen in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
+        setattr(seccion, margen, Cm(1.2))
+
+    titulo = doc.add_paragraph()                          # único párrafo antes de la tabla
+    titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for i, linea in enumerate(TITULO):
+        run = titulo.add_run()
+        if i:
+            run.add_break()                               # Mayús+Intro, no un párrafo nuevo
+        run.add_text(linea)
+        estilo(run, TITULO_PT, TITULO_NEGRITA, TITULO_COLOR)
+
+    tabla = doc.add_table(rows=2, cols=len(COLUMNAS))
+    tabla.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tabla.autofit = False
+    bordes(tabla)
+    for i, (etiqueta, alias, ancho_cm, alinear) in enumerate(COLUMNAS):
+        for fila, texto, pt, negrita, color, relleno, al in (
+            (0, etiqueta, CABECERA_PT, True, CABECERA_COLOR, CABECERA_FONDO, "CENTER"),
+            (1, "{{COLUMN:%s}}" % alias, CUERPO_PT, False, CUERPO_COLOR, CUERPO_FONDO, alinear),
+        ):
+            celda = tabla.cell(fila, i)
+            celda.width = Cm(ancho_cm)
+            p = celda.paragraphs[0]
+            p.alignment = ALINEAR[al]
+            estilo(p.add_run(texto), pt, negrita, color)
+            fondo(celda, relleno)
+
+    pie = seccion.footer.paragraphs[0]
+    pie.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    estilo(pie.add_run(PIE), PIE_PT, False, PIE_COLOR)
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return quitar_custom_xml(buffer.getvalue())
+
+
+def quitar_custom_xml(datos):
+    """python-docx incluye una parte customXml que el compilador rechaza."""
+    origen = zipfile.ZipFile(io.BytesIO(datos))
+    salida = io.BytesIO()
+    with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as destino:
+        for nombre in origen.namelist():
+            if nombre.lower().startswith("customxml/"):
+                continue
+            contenido = origen.read(nombre)
+            if nombre in ("word/_rels/document.xml.rels", "[Content_Types].xml"):
+                texto = contenido.decode("utf-8")
+                texto = re.sub(r"<Relationship [^>]*customXml[^>]*/>", "", texto)
+                texto = re.sub(r'<Override PartName="/customXml/[^>]*/>', "", texto)
+                contenido = texto.encode("utf-8")
+            destino.writestr(nombre, contenido)
+    return salida.getvalue()
+
+
+if __name__ == "__main__":
+    validar_diseno()
+    with open(SALIDA, "wb") as archivo:
+        archivo.write(construir())
+    print("Generado:", SALIDA)
+
+---------------------------------------------------------------------
+6. RECORDATORIO FINAL
+---------------------------------------------------------------------
+- El bloque DISEÑO de ejemplo es solo ilustrativo: reemplázalo COMPLETO con el contenido de MIS capturas (todos los campos de cabecera, todas las columnas del detalle).
+- Ante la duda entre parecido visual y validez, elige validez.
+- Recuerda: la respuesta es SOLO el archivo .docx.
+- No agregues marcadores fuera de los cinco permitidos ni texto después de la tabla.

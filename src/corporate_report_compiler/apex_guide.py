@@ -103,6 +103,10 @@ def page_item_rows(result: CompilationResult) -> list[tuple[str, ...]]:
 def build_apex_guide(result: CompilationResult) -> str:
     """Guía paso a paso para publicar un reporte compilado en APEX 24.2."""
 
+    if result.kind == "layout":
+        from .layout_compiler import build_layout_guide
+
+        return build_layout_guide(result)
     project = result.project
     if not result.valid or project is None or result.definition is None:
         return ""

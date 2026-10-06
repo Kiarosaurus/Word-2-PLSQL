@@ -1,0 +1,23 @@
+{
+  "schema": "corporate-layout-project/1.0",
+  "report_id": "ESTADO_CUENTA",
+  "template": "../estado_cuenta.docx",
+  "title": "ESTADO DE CUENTA DEL ALUMNO",
+  "file_name": "estado_cuenta",
+  "parameters": [
+    {"name": "P_COD_ALUMNO", "item": "P70_COD_ALUMNO", "type": "VARCHAR2", "required": true}
+  ],
+  "queries": {
+    "ALUMNO": "q_alumno.sql",
+    "CAJA": "q_caja.sql",
+    "CUOTAS": "q_cuotas.sql",
+    "TRANSFERENCIAS": "q_transferencias.sql",
+    "ATRASOS": "q_atrasos.sql",
+    "RESUMEN": "q_resumen.sql"
+  },
+  "constants": {
+    "SISTEMA": "ACADEMIA DEMO",
+    "MODULO": "Tesorería",
+    "CODIGO": "EDU-CTA-01"
+  }
+}
