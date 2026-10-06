@@ -489,8 +489,8 @@ DOCUMENTS = (
      "Guía de inicio · Versión 1.0"),
     ("SQL_README.md", "sql/README.docx", "Objetos de base de datos",
      "Motores comunes del modo simple y del modo layout · Oracle APEX 24.2"),
-    ("EXAMPLES_README.md", "proyectos/entidades/README.docx", "Ejemplo ejecutable ENTIDADES",
-     "Proyecto completo de referencia"),
+    ("EXAMPLES_README.md", "proyectos/demo/README.docx", "Proyectos de demostración",
+     "entidades (modo simple, página 70) y estado_cuenta (modo layout, página 71)"),
 )
 
 

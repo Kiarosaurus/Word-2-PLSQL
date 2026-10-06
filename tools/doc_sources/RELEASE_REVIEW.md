@@ -38,7 +38,7 @@ Desde la raíz del proyecto, en Windows 11, con Python 3.13.2 y python-docx 1.2.
 | compileall | sin errores |
 | --version | apex-report-compiler 1.0.0 |
 | Validación del ejemplo | 0 errores, 0 advertencias, sin escribir archivos |
-| Compilación del ejemplo, dos veces | los tres artefactos son idénticos byte a byte entre sí y con los versionados en proyectos/entidades |
+| Compilación del ejemplo, dos veces | los tres artefactos son idénticos byte a byte entre sí y con los versionados en proyectos/demo/entidades |
 | Generador de plantillas | reproduce templates/*.docx byte a byte |
 | ZIP de entrega | pruebas y compilación del ejemplo correctas desde una extracción limpia; SHA-256 en el archivo .sha256 adjunto |
 

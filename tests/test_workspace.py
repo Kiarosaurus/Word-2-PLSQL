@@ -16,7 +16,7 @@ from corporate_report_compiler.workspace import files_to_replace, import_docx, w
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "templates" / "entidades_portrait.docx"
-EXAMPLE = ROOT / "proyectos" / "entidades" / "generado" / "entidades.report.json"
+EXAMPLE = ROOT / "proyectos" / "demo" / "entidades" / "generado" / "entidades.report.json"
 
 
 class ImportDocxTests(unittest.TestCase):
@@ -116,8 +116,11 @@ class ImportDocxTests(unittest.TestCase):
 class LayoutTests(unittest.TestCase):
     def test_example_project_uses_the_layout(self) -> None:
         folder = EXAMPLE.parent.parent
-        for name in ("entidades.docx", "apex_process.sql", "README.docx"):
+        for name in ("entidades.docx", "apex_process.sql", "datos_prueba.sql"):
             self.assertTrue((folder / name).is_file(), name)
+        # La guía común de las demos vive en proyectos/demo/, junto a ambos proyectos.
+        self.assertTrue((folder.parent / "README.docx").is_file())
+        self.assertTrue((folder.parent / "estado_cuenta" / "estado_cuenta.docx").is_file())
         for name in ("entidades.sql", "entidades.report.json", "template.json", "validation.json"):
             self.assertTrue((EXAMPLE.parent / name).is_file(), name)
 

@@ -11,7 +11,7 @@ from corporate_report_compiler.gui import _format_result, default_output
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "proyectos" / "entidades" / "generado" / "entidades.report.json"
+EXAMPLE = ROOT / "proyectos" / "demo" / "entidades" / "generado" / "entidades.report.json"
 
 
 class ApexGuideTests(unittest.TestCase):
@@ -61,7 +61,7 @@ class ApexGuideTests(unittest.TestCase):
 
     def test_skeleton_maps_docx_markers_to_page_items(self) -> None:
         docx = self.root / "entidades.docx"
-        shutil.copyfile(ROOT / "proyectos" / "entidades" / "entidades.docx", docx)
+        shutil.copyfile(ROOT / "proyectos" / "demo" / "entidades" / "entidades.docx", docx)
 
         diagnostics, skeleton, files = write_skeleton(docx, page="42")
 
@@ -76,7 +76,7 @@ class ApexGuideTests(unittest.TestCase):
 
     def test_skeleton_with_placeholder_page_and_no_overwrite(self) -> None:
         docx = self.root / "entidades.docx"
-        shutil.copyfile(ROOT / "proyectos" / "entidades" / "entidades.docx", docx)
+        shutil.copyfile(ROOT / "proyectos" / "demo" / "entidades" / "entidades.docx", docx)
         _diagnostics, skeleton, files = write_skeleton(docx)
         self.assertTrue(all(binding["item"].startswith("PXX_") for binding in skeleton.project["bindings"]))
         before = files[0].read_bytes()

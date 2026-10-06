@@ -91,7 +91,7 @@ Reglas de la carpeta:
 - La compilación reemplaza únicamente `apex_process.sql`, `generado\template.json` y `generado\validation.json`.
 - Las rutas del `.report.json` no pueden salir de `proyectos\<nombre>\` (`PROJECT-005`).
 
-El proyecto de ejemplo `proyectos\entidades\` sigue la misma organización y es el único que además incluye su documentación (`README.docx`).
+Los proyectos de demostración `proyectos\demo\entidades\` (modo simple) y `proyectos\demo\estado_cuenta\` (modo layout) siguen la misma organización; su documentación común es `proyectos\demo\README.docx`.
 
 ```flujo
 # Figura 2. Cargar un DOCX en la carpeta de proyectos
@@ -205,7 +205,7 @@ La fila 2 es un prototipo técnico: no aparece como una fila del PDF. Su orden e
 
 Los identificadores se normalizan a mayúsculas y deben comenzar con una letra. No coloque SQL, fórmulas, condiciones, bucles ni código en un marcador.
 
-Las plantillas de referencia de `templates/` y `proyectos/entidades/entidades.docx` usan los cinco tipos a la vez. Así se ven en Word (los comentarios a la derecha no forman parte del documento):
+Las plantillas de referencia de `templates/` y `proyectos/demo/entidades/entidades.docx` usan los cinco tipos a la vez. Así se ven en Word (los comentarios a la derecha no forman parte del documento):
 
 ```
 {{REPORT_TITLE}}                  <- título; un salto de línea manual (Mayús+Intro)...
@@ -302,7 +302,7 @@ La plantilla usa `{{COLUMN:DEPARTAMENTO}}`; el ID puede seguir usándose como bi
 
 El archivo `nombre.report.json` relaciona el DOCX y el SQL. Se crea **automáticamente** con «Nuevo proyecto desde DOCX» a partir de los marcadores de la plantilla y luego puede editarse directamente con cualquier editor de texto. Vive en `proyectos\<nombre>\generado\`; sus rutas son relativas a ese archivo y deben permanecer dentro de `proyectos\<nombre>\`.
 
-Versión comentada del ejemplo `proyectos/entidades/generado/entidades.report.json`. JSON **no admite comentarios**: las líneas `//` son solo explicativas y deben eliminarse si copia este texto; el archivo real, sin comentarios, está en esa carpeta.
+Versión comentada del ejemplo `proyectos/demo/entidades/generado/entidades.report.json`. JSON **no admite comentarios**: las líneas `//` son solo explicativas y deben eliminarse si copia este texto; el archivo real, sin comentarios, está en esa carpeta.
 
 ```
 {
@@ -635,7 +635,7 @@ Diagnóstico | Revisar APEX Debug | el mensaje del package indica el bind, colum
 - Instale una sola copia central del paquete; no genere un package distinto por reporte.
 - Revise rendimiento y permisos del SQL antes de promover.
 
-La carpeta `proyectos\entidades` contiene un proyecto completo, con su documentación, que sirve como punto de partida; `templates` contiene dos plantillas de referencia, vertical y horizontal, que usan los cinco tipos de marcador.
+La carpeta `proyectos\demo` contiene dos proyectos completos, uno por modo, con su documentación en `proyectos\demo\README.docx`, que sirven como punto de partida; `templates` contiene dos plantillas de referencia, vertical y horizontal, que usan los cinco tipos de marcador.
 
 ## 13. Modo layout: varias tablas y maquetación libre
 
@@ -666,7 +666,7 @@ Usuario final | Descargar | el package ejecuta las consultas y dibuja el PDF
 
 Se mantienen las restricciones de seguridad del modo simple (sin imágenes, macros, campos de Word ni contenido externo). No se admiten celdas combinadas en vertical ni tablas anidadas, y el texto de una celda no se parte en varias líneas automáticamente: use saltos de línea manuales. Las fuentes se imprimen como Helvetica.
 
-Ejemplo comentado (extracto de `proyectos\estado_cuenta\estado_cuenta.docx`, un ejemplo ficticio):
+Ejemplo comentado (extracto de `proyectos\demo\estado_cuenta\estado_cuenta.docx`, un ejemplo ficticio):
 
 ```
 Encabezado de Word:  {{FIELD:SISTEMA}}         ...        {{GENERATED_AT|DD/MM/YYYY}}
@@ -720,4 +720,4 @@ Pie de Word:  Generado por {{APP_USER}}   [{{PAGE}}] DE [{{PAGES}}]
 2. Por reporte: ejecute `proyectos\<nombre>\rpt_<reporte>.sql` en SQL Workshop cada vez que recompile.
 3. Cree los Page Items de `parameters`, el botón (Submit Page, Reload on Submit: Always) y el proceso con `apex_process.sql`, igual que en la sección 9.
 
-El ejemplo ficticio `proyectos\estado_cuenta` (estado de cuenta de un alumno de una academia de demostración) usa las tablas de prueba `PRUEBAP_ALUMNO*`; `proyectos\estado_cuenta\datos_prueba.sql` las crea solo si no existen y nunca borra datos. `proyectos\estado_cuenta\ejemplo_estado_cuenta.pdf` muestra el resultado.
+El ejemplo ficticio `proyectos\demo\estado_cuenta` (estado de cuenta de un alumno de una academia de demostración) usa las tablas de prueba `PRUEBAP_ALUMNO*`; `proyectos\demo\estado_cuenta\datos_prueba.sql` las crea solo si no existen y nunca borra datos. `proyectos\demo\estado_cuenta\ejemplo_estado_cuenta.pdf` muestra el resultado.

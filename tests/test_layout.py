@@ -20,7 +20,7 @@ from corporate_report_compiler.workspace import workspace_outputs
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEMO = ROOT / "proyectos" / "estado_cuenta"
+DEMO = ROOT / "proyectos" / "demo" / "estado_cuenta"
 _spec = importlib.util.spec_from_file_location("layout_template_tool", ROOT / "tools" / "generate_layout_template.py")
 tool = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = tool

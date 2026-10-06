@@ -18,7 +18,7 @@ Word y Python se usan solamente en la computadora del desarrollador. En el servi
 
 El SQL debe devolver el texto que se desea imprimir. Para un LOV, use un `JOIN` y seleccione el *display value* con el alias declarado en Word.
 
-La plantilla de referencia (`templates/` y `proyectos/entidades/entidades.docx`) usa los cinco tipos de marcador:
+La plantilla de referencia (`templates/` y `proyectos/demo/entidades/entidades.docx`) usa los cinco tipos de marcador:
 
 ```
 {{REPORT_TITLE}}                  <- título: párrafo previo a la tabla
@@ -33,7 +33,7 @@ Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}   <- pie de página de Word
 ## Dos modos
 
 - **Modo simple** (`corporate-report-project/1.0`): un título, una tabla y un pie, impresos con `APEX_DATA_EXPORT`. También genera XLSX, que lleva solo la fila de títulos y los datos (sin título, usuario, fecha ni pie), listo para filtrar y analizar.
-- **Modo layout** (`corporate-layout-project/1.0`): varias tablas, cuadrículas con bordes visibles, blancos o sin borde, totales y número de página, impresos por el motor PDF en PL/SQL (`sql/modo_layout`). Una consulta por archivo, como el Data Model de Oracle Reports. Ejemplo ficticio: `proyectos/estado_cuenta`. Ver Manual de uso, sección 13.
+- **Modo layout** (`corporate-layout-project/1.0`): varias tablas, cuadrículas con bordes visibles, blancos o sin borde, totales y número de página, impresos por el motor PDF en PL/SQL (`sql/modo_layout`). Una consulta por archivo, como el Data Model de Oracle Reports. Ejemplo ficticio: `proyectos/demo/estado_cuenta`. Ver Manual de uso, sección 13.
 
 ## Flujo de trabajo
 
@@ -69,15 +69,15 @@ Validar el ejemplo sin escribir artefactos:
 ```
 # Revisa DOCX + SQL + proyecto; no escribe nada en disco
 apex-report-compiler validate `
-  --project .\proyectos\entidades\generado\entidades.report.json
+  --project .\proyectos\demo\entidades\generado\entidades.report.json
 ```
 
 Compilarlo:
 
 ```
-# apex_process.sql -> proyectos\entidades\ ; template.json y validation.json -> generado\
+# apex_process.sql -> proyectos\demo\entidades\ ; template.json y validation.json -> generado\
 apex-report-compiler compile `
-  --project .\proyectos\entidades\generado\entidades.report.json
+  --project .\proyectos\demo\entidades\generado\entidades.report.json
 ```
 
 Cargar un Word propio (se copia a `proyectos\<nombre>\`):
@@ -101,7 +101,7 @@ También puede ejecutar la CLI sin instalar el paquete editable:
 ```
 # Mismo comando validate usando el código de src\, sin instalar el paquete
 python .\launch_compiler.py validate `
-  --project .\proyectos\entidades\generado\entidades.report.json
+  --project .\proyectos\demo\entidades\generado\entidades.report.json
 ```
 
 ## Artefactos generados
@@ -141,7 +141,7 @@ El proceso generado llama a la operación pública `PKG_CORPORATE_REPORTS.DOWNLO
 - `docs/RELEASE_REVIEW.docx`: evidencia y veredicto de la revisión de liberación.
 - `sql/README.docx`: qué contiene `sql/` (los motores comunes de cada modo), instalación y seguridad.
 - `proyectos/`: una carpeta por reporte, con el mismo nombre que su DOCX. Junto al DOCX queda `apex_process.sql` (lo que se pega en APEX); el material de trabajo va en `generado/`. Volver a cargar un DOCX con el mismo nombre reemplaza solo esos archivos, con copias `.bak`; nada más se borra.
-- `proyectos/entidades/`: proyecto de ejemplo ejecutable; es el único que incluye además su documentación (`README.docx`).
+- `proyectos/demo/`: proyectos de demostración ejecutables, uno por modo: `entidades` (modo simple, página 70) y `estado_cuenta` (modo layout, página 71). Su guía es `proyectos/demo/README.docx`.
 - `templates/`: plantillas Word de referencia, vertical y horizontal.
 - `tools/doc_sources/`: fuentes de esta documentación; `python tools\build_documentation.py` regenera todos los Word.
 - `tests/`: pruebas automáticas del compilador y del contrato estático PL/SQL.

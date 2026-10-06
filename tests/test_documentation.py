@@ -28,7 +28,7 @@ REQUIRED = {
     "docs/TEMPLATE_QA.docx": ("templates", "{{FIELD:UNIDAD}}"),
     "README.docx": ("Abrir compilador.bat", "automáticamente"),
     "sql/README.docx": ("Reload on Submit", "-20173"),
-    "proyectos/entidades/README.docx": ("generado", "{{FIELD:UNIDAD}}", ".bak"),
+    "proyectos/demo/README.docx": ("generado", "{{FIELD:UNIDAD}}", ".bak", "estado_cuenta", "P71_COD_ALUMNO"),
 }
 # Nombres de entregas previas: la documentación describe solo la versión actual.
 FORBIDDEN = (
@@ -42,11 +42,12 @@ FORBIDDEN = (
     "alias obsoleto",
     "{{VALUE:",
 )
-MARKERS = ("{{REPORT_TITLE}}", "{{FIELD:", "{{COLUMN:", "{{APP_USER}}", "{{GENERATED_AT}}")
+MARKERS = ("{{REPORT_TITLE}}", "{{FIELD:", "{{COLUMN:", "{{APP_USER}}", "{{GENERATED_AT")  # con o sin máscara
 TEMPLATES = (
     "templates/entidades_portrait.docx",
     "templates/entidades_landscape.docx",
-    "proyectos/entidades/entidades.docx",
+    "proyectos/demo/entidades/entidades.docx",
+    "proyectos/demo/estado_cuenta/estado_cuenta.docx",
 )
 
 
@@ -57,7 +58,11 @@ def document_text(path: Path) -> str:
         for row in table.rows:
             parts.extend(cell.text for cell in row.cells)
     for section in document.sections:
-        parts.extend(paragraph.text for paragraph in section.footer.paragraphs)
+        for zone in (section.header, section.footer):
+            parts.extend(paragraph.text for paragraph in zone.paragraphs)
+            for table in zone.tables:
+                for row in table.rows:
+                    parts.extend(cell.text for cell in row.cells)
     return "\n".join(parts)
 
 

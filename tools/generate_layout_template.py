@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Genera la plantilla de demostración del modo layout: proyectos/estado_cuenta/estado_cuenta.docx.
+"""Genera la plantilla de demostración del modo layout: proyectos/demo/estado_cuenta/estado_cuenta.docx.
 
 Estado de cuenta ficticio de un alumno, con la apariencia típica de un
 reporte de Oracle Reports y todo lo que el modo layout admite: tablas de
@@ -29,7 +29,7 @@ from docx.shared import Cm, Mm, Pt, RGBColor
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "proyectos" / "estado_cuenta" / "estado_cuenta.docx"
+OUTPUT = ROOT / "proyectos" / "demo" / "estado_cuenta" / "estado_cuenta.docx"
 FONT = "Arial"
 MONEY = "FM999G999G990D00"
 BLACK, WHITE, GREY, BAND, LIGHT = "000000", "FFFFFF", "D9D9D9", "BFBFBF", "D9D9D9"
