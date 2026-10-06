@@ -1,57 +1,64 @@
 =====================================================================
 PROMPT: PLANTILLA WORD (MODO LAYOUT) A PARTIR DE CAPTURAS DE UN REPORTE ORACLE
 Copie todo lo que está debajo de la línea y adjunte las capturas.
+
+Nota para Informática (no forma parte del prompt): la IA deja los marcadores
+{{FIELD:}}, {{COLUMN:}} y {{SUM:}} VACÍOS. Antes de cargar el Word con
+«Nuevo proyecto desde DOCX», complete cada uno en Word con CONSULTA.COLUMNA
+(y la máscara si hace falta, por ejemplo {{COLUMN:CUOTAS.IMPORTE|FM999G999G990D00}}).
+Al validar, el compilador lista cada marcador pendiente con LAYOUT-TOKEN-008.
 =====================================================================
 
 Eres un especialista en migrar reportes de Oracle Forms/Reports a Oracle APEX 24.2. Te adjunto una o dos capturas de un mismo reporte:
 
 - Captura RENDERIZADA (la salida impresa con datos): úsala para los textos visibles, el orden, las etiquetas, la orientación y la apariencia (bandas grises, recuadros, líneas, cursivas).
-- Captura de DISEÑO (el layout del editor de Oracle Reports, con nombres como F_xxx, CF_xxx, CS_xxx, CP_xxx y grupos G_xxx): úsala para derivar los nombres técnicos.
+- Captura de DISEÑO (el layout del editor de Oracle Reports): úsala para entender qué campos y bloques existen y cómo se agrupan.
 
 Si solo hay una, trabaja con ella.
 
 OBJETIVO
-Generar una PLANTILLA WORD (.docx) que se parezca lo más posible al reporte original y que cumpla EXACTAMENTE el lenguaje del "modo layout" de nuestro compilador. El equipo de Informática la mejorará después. Si dudas entre parecido visual y validez, elige validez.
+Generar una PLANTILLA WORD (.docx) que se parezca lo más posible al reporte original y que cumpla EXACTAMENTE el lenguaje del "modo layout" de nuestro compilador. Tú armas la estructura y la apariencia; el equipo de Informática completa después los nombres de los datos. Si dudas entre parecido visual y validez, elige validez.
 
 El compilador lee el Word completo (encabezado, cuerpo y pie) y lo imprime con un motor PDF propio:
 - las tablas del Word se dibujan tal cual, con los bordes que tenga cada celda;
-- una tabla con {{COLUMN:...}} es una TABLA DE DATOS: su fila de marcadores se repite una vez por registro;
-- los valores salen de consultas SQL con nombre (una por bloque del reporte), que Informática escribe aparte.
+- una tabla con {{COLUMN:}} es una TABLA DE DATOS: su fila de marcadores se repite una vez por registro;
+- los valores salen de consultas SQL que Informática escribe aparte y enlaza completando los marcadores.
 
 ---------------------------------------------------------------------
-1. REGLAS OBLIGATORIAS DEL DOCX (si se incumple una, el compilador lo rechaza)
+1. REGLAS OBLIGATORIAS DEL DOCX
 ---------------------------------------------------------------------
 Página y zonas:
 - Papel A4 (21 x 29,7 cm), vertical u horizontal. Una sola sección.
 - El encabezado y el pie de Word pueden tener párrafos y tablas de maquetación; se repiten en cada página.
 - Sin encabezado/pie distinto para la primera página o páginas pares.
 
-Marcadores (los únicos que existen; cualquier otra cosa entre {{ }} es error):
+Marcadores. Escríbelos EXACTAMENTE así, sin nada entre los dos puntos y las llaves de cierre:
+- {{FIELD:}}  -> donde va un dato que aparece una sola vez (datos de cabecera, valores del resumen, totales generales que no están en una tabla).
+- {{COLUMN:}} -> en cada celda de la fila que se repite de una tabla de datos.
+- {{SUM:}}    -> en las celdas de totales, debajo de la fila que se repite.
+- NUNCA escribas nombres, puntos, consultas, columnas ni máscaras dentro de {{FIELD:}}, {{COLUMN:}} o {{SUM:}}. Quedan vacíos SIEMPRE; Informática los completa.
+Marcadores integrados (estos sí van completos, porque no llevan nombre):
 - {{REPORT_TITLE}}: título del reporte (normalmente en el encabezado de Word, centrado).
-- {{FIELD:CONSULTA.COLUMNA}}: un valor de la primera fila de una consulta (datos de cabecera, grupo maestro, resúmenes). En cualquier párrafo o celda.
-- {{FIELD:NOMBRE}}: un texto fijo o un parámetro (por ejemplo el nombre del sistema o el código del reporte).
-- {{COLUMN:CONSULTA.COLUMNA}}: solo en la fila que se repite de una tabla de datos.
-- {{SUM:CONSULTA.COLUMNA}}: solo en las filas de totales de una tabla de datos (debajo de la fila que se repite).
 - {{APP_USER}}: usuario que imprime. {{GENERATED_AT}}: fecha/hora de impresión.
 - {{PAGE}} y {{PAGES}}: número de página y total. SOLO en el encabezado o el pie de Word.
-- Formato opcional con barra vertical al final: {{FIELD:ALUMNO.FECHA|DD/MM/YYYY}}, {{COLUMN:CUOTAS.IMPORTE|FM999G999G990D00}}, {{GENERATED_AT|HH:MI:SS AM}}. Use máscaras TO_CHAR de Oracle.
-- CONSULTA, COLUMNA y NOMBRE: mayúsculas, empiezan con letra, solo A-Z, 0-9 y _, máximo 30 caracteres.
-- Todo el marcador con el mismo formato (no ponga parte en negrita y parte no). Sin espacios dentro de las llaves.
+- No uses ningún otro marcador. Todo el marcador con el mismo formato (no ponga parte en negrita y parte no). Sin espacios dentro de las llaves.
+- Los textos fijos del original (nombre del sistema, módulo, código del reporte, etiquetas) se escriben como texto literal, no como marcador.
 
 Tablas de datos (una por cada bloque repetitivo del original):
 - Filas ANTES de la fila de marcadores = cabecera (por ejemplo una banda gris con el título del bloque y una fila con los títulos de columna). Se repiten en cada página.
-- UNA fila con {{COLUMN:...}}: cada celda tiene un marcador o queda vacía; todos de la MISMA consulta.
-- Filas DESPUÉS = totales, con {{SUM:...}} de la misma consulta.
+- UNA fila con {{COLUMN:}}: cada celda tiene {{COLUMN:}} o queda vacía.
+- Filas DESPUÉS = totales, con {{SUM:}} en las columnas que el original totaliza.
 - Nada de tablas de datos dentro del encabezado o pie de Word.
 
 Tablas de maquetación (cuadrículas, recuadros, bandas, el resumen final, el encabezado y el pie):
-- Cualquier tabla sin {{COLUMN:...}}. Use bordes por celda: negro para líneas visibles, BLANCO o "sin borde" para separaciones invisibles. Rellenos de color permitidos.
+- Cualquier tabla sin {{COLUMN:}}. Use bordes por celda: negro para líneas visibles, BLANCO o "sin borde" para separaciones invisibles. Rellenos de color permitidos.
 - Se permite combinar celdas en HORIZONTAL. Prohibido combinar en vertical y anidar tablas.
 - Cada fila debe ocupar todas las columnas de la tabla.
 
 Texto:
-- El texto de una celda NO salta de línea solo: si necesita varias líneas, use saltos de línea manuales (Mayús+Intro). Haga las columnas lo bastante anchas.
+- El texto de una celda NO salta de línea solo: si necesita varias líneas, use saltos de línea manuales (Mayús+Intro). Haga las columnas lo bastante anchas para los datos reales que se ven en la captura.
 - Fuente recomendada: Arial (todo se imprime como Helvetica). Negrita y cursiva sí; subrayado y tachado no se imprimen.
+- Alinee a la derecha las celdas de importes y cantidades, al centro los códigos y fechas, a la izquierda los textos.
 - Las celdas y párrafos vacíos también ocupan alto: deje su marca de párrafo en 2 a 6 pt.
 
 Prohibido en cualquier parte: imágenes, logos, formas, cuadros de texto, WordArt, SmartArt, gráficos, campos de Word (número de página automático, fecha automática), controles de contenido, comentarios, notas al pie, control de cambios, texto oculto, hipervínculos, macros, ecuaciones, símbolos insertados.
@@ -59,42 +66,35 @@ Prohibido en cualquier parte: imágenes, logos, formas, cuadros de texto, WordAr
 ---------------------------------------------------------------------
 2. CÓMO TRADUCIR EL REPORTE ORIGINAL
 ---------------------------------------------------------------------
-a) Una CONSULTA por bloque de datos del original (un Group de Oracle Reports). Nómbrela con el nombre del grupo sin el prefijo G_ (G_ALUMNO -> ALUMNO) o, sin captura de diseño, con el tema del bloque (CUOTAS, PAGOS, MORAS, RESUMEN).
-b) Datos que aparecen una sola vez (cabecera, datos del cliente/alumno/préstamo): tabla de maquetación tipo cuadrícula con pares etiqueta/valor:
-   - columnas alternas etiqueta | valor; borde BLANCO entre etiqueta y valor; líneas negras donde el original tiene recuadros;
-   - valores con {{FIELD:CONSULTA.COLUMNA}}; importes alineados a la derecha con máscara FM999G999G990D00.
-c) Bloques repetitivos: una tabla de datos cada uno, con su banda de título gris (celda combinada), fila de títulos de columna en recuadros y, si el original tiene totales, fila de totales con {{SUM:...}} en celdas grises con recuadro.
+a) Datos que aparecen una sola vez (cabecera: datos del cliente, alumno, préstamo, etc.): tabla de maquetación tipo cuadrícula con pares etiqueta/valor:
+   - columnas alternas etiqueta | valor; la etiqueta es el texto del original ("Código :", "Fecha :"); el valor es {{FIELD:}};
+   - borde BLANCO entre etiqueta y valor; líneas negras donde el original tiene recuadros;
+   - una banda gris superior (celda combinada) si el original la tiene, con sus etiquetas y {{FIELD:}}.
+b) Bloques repetitivos: una tabla de datos cada uno, con su banda de título gris (celda combinada, con el título del bloque como texto), fila de títulos de columna en recuadros, la fila de {{COLUMN:}} y, si el original tiene totales, fila de totales con {{SUM:}} en celdas grises con recuadro.
    - Si el original deja huecos entre columnas, use columnas vacías (sin título ni marcador).
-d) Recuadros de resumen (por ejemplo "Saldo pendiente"): tabla de maquetación centrada con borde exterior, filas etiqueta | signo | valor y valores con {{FIELD:RESUMEN.COLUMNA}}.
-e) Encabezado de página del original (sistema, módulo, código, fecha, hora, usuario, título) -> encabezado de Word con una tabla invisible de 3 celdas y un párrafo centrado con {{REPORT_TITLE}}. Textos fijos como {{FIELD:SISTEMA}}, {{FIELD:CODIGO}}.
-f) Pie del original ("Generado por ...", "Pág. X de Y") -> pie de Word con {{APP_USER}}, {{PAGE}} y {{PAGES}} (en celdas con recuadro si el original los muestra en casillas).
-g) No inventes datos ni bloques que no estén en las capturas.
+c) Recuadros de resumen (por ejemplo "Saldo pendiente"): tabla de maquetación centrada con borde exterior, filas etiqueta | signo | {{FIELD:}}.
+d) Encabezado de página del original (sistema, módulo, código, fecha, hora, usuario, título) -> encabezado de Word con una tabla invisible de 3 celdas (textos fijos a la izquierda; {{GENERATED_AT}} y {{APP_USER}} a la derecha) y un párrafo centrado con {{REPORT_TITLE}}.
+e) Pie del original ("Generado por ...", "Pág. X de Y") -> pie de Word con {{APP_USER}}, {{PAGE}} y {{PAGES}} (en celdas con recuadro si el original los muestra en casillas).
+f) No inventes datos ni bloques que no estén en las capturas.
 
 ---------------------------------------------------------------------
-3. NOMBRES TÉCNICOS
----------------------------------------------------------------------
-- Con captura de diseño: COLUMNA = nombre del campo de Oracle sin F_, CF_, CS_ o CP_ y sin el sufijo numérico si no hace falta (F_nom_alumno1 -> NOM_ALUMNO). Si dos quedan iguales, conserve el número.
-- Si un nombre está cortado en la captura, use el más probable.
-- Sin captura de diseño: derive el nombre de la etiqueta (Imp. Cuota -> IMP_CUOTA; N° Docum -> NRO_DOC; Año -> ANIO, sin Ñ ni tildes).
-- Evite palabras reservadas de Oracle como COLUMNA (DATE, LEVEL, NUMBER, ORDER, USER, SIZE...): use FECHA, NIVEL, NUMERO, etc.
-
----------------------------------------------------------------------
-4. QUÉ DEBES ENTREGAR: SOLO EL ARCHIVO .DOCX
+3. QUÉ DEBES ENTREGAR: SOLO EL ARCHIVO .DOCX
 ---------------------------------------------------------------------
 - Entrega ÚNICAMENTE el archivo .docx para descargar. Nada más.
-- NO entregues SQL, JSON, Markdown, tablas de mapeo, listas de pérdidas, explicaciones ni resúmenes. No crees otros archivos. Las consultas y la configuración las hace el equipo de Informática con su propia herramienta.
-- Para generarlo, ejecuta el SCRIPT DE REFERENCIA de la sección 5: conserva las funciones de ayuda tal cual y reemplaza COMPLETA la función diseno() con el reporte de MIS capturas. python-docx crea por defecto páginas tamaño Carta (no A4) e incluye una parte customXml que el compilador rechaza; las funciones preparar_documento() y guardar() lo corrigen.
+- NO entregues SQL, JSON, Markdown, tablas de mapeo, listas de nombres de campos, explicaciones ni resúmenes. No crees otros archivos.
+- Para generarlo, ejecuta el SCRIPT DE REFERENCIA de la sección 4: conserva las funciones de ayuda tal cual y reemplaza COMPLETA la función diseno() con el reporte de MIS capturas. python-docx crea por defecto páginas tamaño Carta (no A4) e incluye una parte customXml que el compilador rechaza; las funciones preparar_documento() y guardar() lo corrigen.
 - Si no puedes ejecutar código ni adjuntar archivos, entonces (y solo entonces) responde únicamente con el script completo, con diseno() rellenado, para que yo lo ejecute con: pip install python-docx && python plantilla.py
 - Nombra el archivo (variable SALIDA) con el código del reporte que se ve en la captura, por ejemplo EDU_CTA01.docx.
-- Antes de entregarlo, revisa en silencio que cumpla la sección 1. No me muestres esa revisión.
+- Antes de entregarlo, revisa en silencio que cumpla la sección 1 y que TODOS los {{FIELD:}}, {{COLUMN:}} y {{SUM:}} estén vacíos. No me muestres esa revisión.
 
 ---------------------------------------------------------------------
-5. SCRIPT DE REFERENCIA (probado contra el compilador; reemplace solo diseno())
+4. SCRIPT DE REFERENCIA (probado contra el compilador; reemplace solo diseno())
 ---------------------------------------------------------------------
 """Genera una plantilla Word para el compilador APEX en MODO LAYOUT.
 
 Requiere: pip install python-docx
 Edite solo la función diseno(); las funciones de ayuda aplican las reglas técnicas.
+Los marcadores {{FIELD:}}, {{COLUMN:}} y {{SUM:}} se dejan VACÍOS: los completa Informática.
 """
 import io
 import re
@@ -108,7 +108,6 @@ from docx.shared import Mm, Pt, RGBColor
 
 SALIDA = "REPORTE.docx"
 FUENTE = "Arial"
-DINERO = "FM999G999G990D00"
 NEGRO, BLANCO, GRIS, BANDA, CLARO = "000000", "FFFFFF", "D9D9D9", "BFBFBF", "D9D9D9"
 SIN_CAMBIO = object()
 
@@ -244,8 +243,8 @@ def espacio(contenedor, tam=5):
 def tabla_datos(doc, titulo, columnas_titulo, encabezados, marcadores, anchos, alineaciones, totales=None):
     """Tabla de datos: banda de título, fila de encabezados, fila que se repite y fila de totales.
 
-    marcadores: un {{COLUMN:CONSULTA.COLUMNA}} por celda ("" = celda vacía).
-    totales: {índice_de_columna: "{{SUM:CONSULTA.COLUMNA|máscara}}"}.
+    marcadores: "{{COLUMN:}}" en cada celda con dato ("" = celda vacía).
+    totales: {índice_de_columna: "{{SUM:}}"} para las columnas con total.
     """
     t = tabla(doc, 4 if totales else 3, anchos)
     banda = t.rows[0].cells[0].merge(t.rows[0].cells[columnas_titulo - 1])
@@ -313,9 +312,8 @@ def diseno():
 
     # Encabezado de Word (se repite en cada página): tabla invisible de 3 celdas + título.
     cab = tabla(s.header, 1, [60, 60, 60], margen_mm=0)
-    celda_texto(cab.rows[0].cells[0], "{{FIELD:SISTEMA}}\n{{FIELD:CODIGO}}", tam=6)
-    celda_texto(cab.rows[0].cells[2], "{{GENERATED_AT|DD/MM/YYYY}}\n{{GENERATED_AT|HH:MI:SS AM}}\n{{APP_USER}}",
-                "R", tam=6)
+    celda_texto(cab.rows[0].cells[0], "SISTEMA DEMO\nREP-001", tam=6)          # textos fijos: literales
+    celda_texto(cab.rows[0].cells[2], "{{GENERATED_AT}}\n{{APP_USER}}", "R", tam=6)
     texto(ajustar(s.header.add_paragraph(), "C"), "{{REPORT_TITLE}}", tam=10)
     cerrar_zona(s.header)
 
@@ -330,18 +328,16 @@ def diseno():
     caja(c[3]); celda_texto(c[3], "{{PAGES}}", "C")
     cerrar_zona(s.footer)
 
-    # Cabecera del grupo maestro: cuadrícula etiqueta/valor; borde blanco entre etiqueta y valor.
+    # Cabecera (datos que aparecen una vez): cuadrícula etiqueta/valor con {{FIELD:}} vacíos.
     g = tabla(doc, 3, [30, 60, 30, 60])
     banda = g.rows[0].cells[0].merge(g.rows[0].cells[3])
     relleno(banda, GRIS)
     caja(banda, 0.75)
-    celda_texto(banda, [("Cliente : {{FIELD:MAESTRO.CODIGO}}   ", {"tam": 8.5}),
-                        ("{{FIELD:MAESTRO.NOMBRE}}", {"tam": 8.5, "cursiva": True})])
-    pares = [("Fecha :", "{{FIELD:MAESTRO.FECHA|DD/MM/YYYY}}", "Importe :", "{{FIELD:MAESTRO.IMPORTE|%s}}" % DINERO),
-             ("Estado :", "{{FIELD:MAESTRO.ESTADO}}", "Saldo :", "{{FIELD:MAESTRO.SALDO|%s}}" % DINERO)]
-    for f, (e1, v1, e2, v2) in enumerate(pares, start=1):
+    celda_texto(banda, [("Cliente : {{FIELD:}}   ", {"tam": 8.5}), ("{{FIELD:}}", {"tam": 8.5, "cursiva": True})])
+    pares = [("Fecha :", "Importe :"), ("Estado :", "Saldo :")]
+    for f, (e1, e2) in enumerate(pares, start=1):
         ultima = f == len(pares)
-        for col, (contenido, alinear) in enumerate(((e1, "L"), (v1, "L"), (e2, "L"), (v2, "R"))):
+        for col, (contenido, alinear) in enumerate(((e1, "L"), ("{{FIELD:}}", "C"), (e2, "L"), ("{{FIELD:}}", "R"))):
             celda = g.rows[f].cells[col]
             celda_texto(celda, contenido, alinear, tam=7.5)
             borde(celda, izq=(0.75, NEGRO) if col in (0, 2) else (0.5, BLANCO),
@@ -349,13 +345,12 @@ def diseno():
                   abajo=(0.75, NEGRO) if ultima else None)
     espacio(doc, 6)
 
-    # Tabla de datos (una por grupo repetitivo del reporte original).
+    # Tabla de datos (una por bloque repetitivo del original) con {{COLUMN:}} y {{SUM:}} vacíos.
     tabla_datos(doc, "MOVIMIENTOS", 3,
                 ["Fecha", "Documento", "Concepto", "Importe"],
-                ["{{COLUMN:MOVIMIENTOS.FECHA|DD/MM/YYYY}}", "{{COLUMN:MOVIMIENTOS.DOCUMENTO}}",
-                 "{{COLUMN:MOVIMIENTOS.CONCEPTO}}", "{{COLUMN:MOVIMIENTOS.IMPORTE|%s}}" % DINERO],
+                ["{{COLUMN:}}", "{{COLUMN:}}", "{{COLUMN:}}", "{{COLUMN:}}"],
                 [20, 30, 80, 25], ["C", "C", "L", "R"],
-                {3: "{{SUM:MOVIMIENTOS.IMPORTE|%s}}" % DINERO})
+                {3: "{{SUM:}}"})
     return doc
 
 
@@ -364,9 +359,9 @@ if __name__ == "__main__":
     print("Generado:", SALIDA)
 
 ---------------------------------------------------------------------
-6. RECORDATORIO FINAL
+5. RECORDATORIO FINAL
 ---------------------------------------------------------------------
-- La función diseno() de ejemplo es solo ilustrativa (un maestro y una tabla): reemplázala COMPLETA con TODO el contenido de MIS capturas: encabezado, cabecera en cuadrícula, cada bloque repetitivo como tabla de datos con sus totales, los recuadros de resumen y el pie.
-- {{PAGE}} y {{PAGES}} solo en el encabezado o pie de Word; {{COLUMN:...}} solo en la fila que se repite; {{SUM:...}} solo debajo de ella.
+- La función diseno() de ejemplo es solo ilustrativa (una cabecera y una tabla): reemplázala COMPLETA con TODO el contenido de MIS capturas: encabezado, cabecera en cuadrícula, cada bloque repetitivo como tabla de datos con sus totales, los recuadros de resumen y el pie.
+- {{FIELD:}}, {{COLUMN:}} y {{SUM:}} siempre vacíos. {{PAGE}} y {{PAGES}} solo en el encabezado o pie de Word; {{COLUMN:}} solo en la fila que se repite; {{SUM:}} solo debajo de ella.
 - Ante la duda entre parecido visual y validez, elige validez.
 - Recuerda: la respuesta es SOLO el archivo .docx.

@@ -10,6 +10,27 @@ ANY_PLACEHOLDER_PATTERN = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
 COLUMN_PATTERN = re.compile(r"^\{\{\s*COLUMN\s*:\s*([A-Z][A-Z0-9_$#]{0,29})\s*\}\}$", re.IGNORECASE)
 FIELD_PATTERN = re.compile(r"\{\{\s*FIELD\s*:\s*([A-Z][A-Z0-9_$#]{0,29})\s*\}\}", re.IGNORECASE)
 BUILTINS = {"REPORT_TITLE", "APP_USER", "GENERATED_AT"}
+# Marcador con el tipo pero sin nombre: {{FIELD:}}, {{COLUMN:}} o {{SUM:}} (plantillas generadas por IA).
+EMPTY_MARKER_PATTERN = re.compile(r"^\s*(FIELD|COLUMN|SUM)\s*:\s*(\|.*)?$", re.IGNORECASE | re.DOTALL)
+
+
+def report_empty_marker(
+    raw: str, inner: str, diagnostics: Diagnostics, location: str, code: str, *, layout: bool = False
+) -> bool:
+    """Informa un marcador sin completar; devuelve True si lo era."""
+
+    match = EMPTY_MARKER_PATTERN.match(inner)
+    if match is None:
+        return False
+    kind = match.group(1).upper()
+    example = "CONSULTA.COLUMNA" if layout else ("ALIAS" if kind == "COLUMN" else "NOMBRE")
+    diagnostics.error(
+        code,
+        f"Marcador sin completar: {raw}.",
+        location=location,
+        suggestion=f"Escriba el nombre después de los dos puntos, por ejemplo {{{{{kind}:{example}}}}}.",
+    )
+    return True
 
 
 def normalize_identifier(value: str, *, label: str, diagnostics: Diagnostics, location: str | None = None) -> str | None:
@@ -56,6 +77,8 @@ def validate_text_placeholders(
             else:
                 fields.append(field_match.group(1).upper())
             continue
+        if report_empty_marker(raw, inner, diagnostics, location, "TOKEN-006"):
+            continue
         diagnostics.error(
             "TOKEN-003",
             f"Marcador desconocido o mal formado: {raw}.",
@@ -69,6 +92,11 @@ def validate_text_placeholders(
 def parse_column_placeholder(text: str, diagnostics: Diagnostics, location: str) -> str | None:
     match = COLUMN_PATTERN.fullmatch(text.strip())
     if not match:
+        stripped = text.strip()
+        if stripped.startswith("{{") and stripped.endswith("}}") and report_empty_marker(
+            stripped, stripped[2:-2], diagnostics, location, "TOKEN-006"
+        ):
+            return None
         diagnostics.error(
             "DOCX-TABLE-004",
             "La celda prototipo debe contener solamente {{COLUMN:ALIAS}}.",

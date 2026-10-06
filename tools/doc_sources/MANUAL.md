@@ -624,6 +624,7 @@ Diagnóstico | Revisar APEX Debug | el mensaje del package indica el bind, colum
 | PROJECT-005 | Una ruta del .report.json sale de proyectos\<nombre>\ | Mantener la plantilla en ../<nombre>.docx y el SQL en generado\ |
 | «SyntaxError … JSON» al descargar | Reload on Submit en Only for Success | Cambiarlo a Always en la página |
 | TOKEN-005 | {{FIELD:APP_USER}} u otro nombre reservado | Escribir {{APP_USER}} sin FIELD: |
+| TOKEN-006 / LAYOUT-TOKEN-008 | Marcador sin completar ({{FIELD:}}, {{COLUMN:}}, {{SUM:}}), típico de una plantilla generada con la IA | Escribir el nombre: ALIAS o NOMBRE en modo simple, CONSULTA.COLUMNA en modo layout |
 
 ## 12. Mantenimiento recomendado
 
@@ -663,6 +664,8 @@ Usuario final | Descargar | el package ejecuta las consultas y dibuja el PDF
 | Formato | Barra vertical y máscara al final del marcador (ver el ejemplo comentado) | TO_CHAR con esa máscara, por ejemplo FM999G999G990D00 |
 | Maquetación | Tablas sin {{COLUMN:...}}, con bordes por celda: visibles, blancos o sin borde; rellenos; celdas combinadas en horizontal | Se dibujan tal cual |
 | Encabezado y pie | Párrafos y tablas en el encabezado/pie de Word | Se repiten en cada página |
+
+La primera versión del Word puede generarse con el prompt `docs\PROMPT_IA_PLANTILLA.txt` a partir de capturas del reporte original. La IA deja vacíos `{{FIELD:}}`, `{{COLUMN:}}` y `{{SUM:}}`: Informática los completa en Word con CONSULTA.COLUMNA; la validación lista cada marcador pendiente con su tabla, fila y columna (LAYOUT-TOKEN-008).
 
 Se mantienen las restricciones de seguridad del modo simple (sin imágenes, macros, campos de Word ni contenido externo). No se admiten celdas combinadas en vertical ni tablas anidadas, y el texto de una celda no se parte en varias líneas automáticamente: use saltos de línea manuales. Las fuentes se imprimen como Helvetica.
 

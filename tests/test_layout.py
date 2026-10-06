@@ -116,6 +116,21 @@ class LayoutReaderTests(unittest.TestCase):
         _template, diagnostics = self.read(document)
         self.assertIn("LAYOUT-TABLE-004", codes(diagnostics))
 
+    def test_empty_markers_from_ai_are_listed_as_pending(self) -> None:
+        document = base_document()
+        tool.new_table(document, 1, [30, 30])
+        tool.text_cell(document.tables[0].rows[0].cells[0], "Código : {{FIELD:}}")
+        data_table(document, ["{{COLUMN:}}", "{{COLUMN:}}"], ["", "{{SUM:}}"])
+        path = save(document, self.root / "ia.docx")
+
+        self.assertTrue(is_layout_docx(path))        # varias tablas: modo layout aunque falten nombres
+        diagnostics = Diagnostics(strict=True)
+        self.assertIsNone(read_layout_template(path, diagnostics))
+        pending = [item for item in diagnostics.items if item.code == "LAYOUT-TOKEN-008"]
+        self.assertEqual(len(pending), 4)
+        self.assertEqual(codes(diagnostics), {"LAYOUT-TOKEN-008"})
+        self.assertIn("CONSULTA.COLUMNA", pending[0].suggestion)
+
 
 class LayoutProjectTests(unittest.TestCase):
     def setUp(self) -> None:

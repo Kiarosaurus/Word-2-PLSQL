@@ -36,8 +36,6 @@ CREATE OR REPLACE PACKAGE BODY rpt_pdf AS
     g_current     PLS_INTEGER := 0;
     g_width_pt    NUMBER;
     g_height_pt   NUMBER;
-    g_body_top    NUMBER;
-    g_body_bottom NUMBER;
     g_font        PLS_INTEGER := c_regular;
     g_size        NUMBER := 8;
     g_text_rgb    VARCHAR2(6) := '000000';
@@ -107,11 +105,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_pdf AS
     END escape_text;
 
     -- ------------------------------------------------------------ documento
-    PROCEDURE new_document(
-        p_landscape      IN BOOLEAN DEFAULT FALSE,
-        p_body_top_mm    IN NUMBER  DEFAULT 20,
-        p_body_bottom_mm IN NUMBER  DEFAULT 20
-    ) IS
+    PROCEDURE new_document(p_landscape IN BOOLEAN DEFAULT FALSE) IS
     BEGIN
         FOR i IN 1 .. g_page_count LOOP
             IF DBMS_LOB.ISTEMPORARY(g_pages(i)) = 1 THEN
@@ -127,8 +121,6 @@ CREATE OR REPLACE PACKAGE BODY rpt_pdf AS
             g_width_pt  := 297 * c_pt_per_mm;
             g_height_pt := 210 * c_pt_per_mm;
         END IF;
-        g_body_top    := p_body_top_mm;
-        g_body_bottom := p_body_bottom_mm;
         IF g_w_regular.COUNT = 0 THEN
             load_widths(c_widths_regular, g_w_regular);
             load_widths(c_widths_bold, g_w_bold);
@@ -149,8 +141,6 @@ CREATE OR REPLACE PACKAGE BODY rpt_pdf AS
     FUNCTION current_page RETURN PLS_INTEGER IS BEGIN RETURN g_current; END;
     FUNCTION page_width_mm RETURN NUMBER IS BEGIN RETURN g_width_pt / c_pt_per_mm; END;
     FUNCTION page_height_mm RETURN NUMBER IS BEGIN RETURN g_height_pt / c_pt_per_mm; END;
-    FUNCTION body_top_mm RETURN NUMBER IS BEGIN RETURN g_body_top; END;
-    FUNCTION body_limit_mm RETURN NUMBER IS BEGIN RETURN page_height_mm - g_body_bottom; END;
 
     PROCEDURE set_page(p_page IN PLS_INTEGER) IS
     BEGIN
@@ -305,162 +295,6 @@ CREATE OR REPLACE PACKAGE BODY rpt_pdf AS
             || CHR(10) || 'startxref' || CHR(10) || l_xref || CHR(10) || '%%EOF' || CHR(10));
         RETURN l_pdf;
     END get_pdf;
-
-    -- ------------------------------------------------------------ tablas
-    FUNCTION col(
-        p_heading  IN VARCHAR2,
-        p_width_mm IN NUMBER,
-        p_align    IN VARCHAR2 DEFAULT 'L',
-        p_format   IN VARCHAR2 DEFAULT NULL,
-        p_summary  IN VARCHAR2 DEFAULT NULL,
-        p_gap_mm   IN NUMBER   DEFAULT 0
-    ) RETURN t_column IS
-        l_col t_column;
-    BEGIN
-        l_col.heading  := p_heading;
-        l_col.width_mm := p_width_mm;
-        l_col.align    := UPPER(p_align);
-        l_col.format   := p_format;
-        l_col.summary  := UPPER(p_summary);
-        l_col.gap_mm   := NVL(p_gap_mm, 0);
-        RETURN l_col;
-    END col;
-
-    PROCEDURE print_table(
-        p_cursor     IN OUT SYS_REFCURSOR,
-        p_columns    IN t_columns,
-        p_y          IN OUT NUMBER,
-        p_x          IN NUMBER   DEFAULT 15,
-        p_title      IN VARCHAR2 DEFAULT NULL,
-        p_title_w_mm IN NUMBER   DEFAULT 78,
-        p_font_pt    IN NUMBER   DEFAULT 7,
-        p_row_mm     IN NUMBER   DEFAULT 3.1
-    ) IS
-        TYPE t_numbers IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
-        TYPE t_types   IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
-        c_header_mm CONSTANT NUMBER := 3.4;
-        l_cursor   INTEGER;
-        l_count    INTEGER;
-        l_desc     DBMS_SQL.DESC_TAB3;
-        l_types    t_types;
-        l_x        t_numbers;
-        l_sums     t_numbers;
-        l_number   NUMBER;
-        l_date     DATE;
-        l_text     VARCHAR2(4000);
-        l_has_sums BOOLEAN := FALSE;
-
-        PROCEDURE ensure_space(p_needed IN NUMBER, p_with_header IN BOOLEAN);
-
-        PROCEDURE draw_header IS
-        BEGIN
-            set_font(c_italic, p_font_pt);
-            FOR i IN 1 .. p_columns.COUNT LOOP
-                IF p_columns(i).heading IS NOT NULL THEN
-                    rect(l_x(i), p_y, p_columns(i).width_mm, c_header_mm, NULL, '000000', 0.4);
-                    text(l_x(i), p_y + c_header_mm - 0.9, p_columns(i).heading, 'C', p_columns(i).width_mm);
-                END IF;
-            END LOOP;
-            p_y := p_y + c_header_mm + 0.4;
-        END draw_header;
-
-        PROCEDURE ensure_space(p_needed IN NUMBER, p_with_header IN BOOLEAN) IS
-        BEGIN
-            IF p_y + p_needed > body_limit_mm THEN
-                new_page;
-                p_y := body_top_mm;
-                IF p_with_header THEN
-                    draw_header;
-                END IF;
-            END IF;
-        END ensure_space;
-    BEGIN
-        l_cursor := DBMS_SQL.TO_CURSOR_NUMBER(p_cursor);
-        DBMS_SQL.DESCRIBE_COLUMNS3(l_cursor, l_count, l_desc);
-        IF l_count <> p_columns.COUNT THEN
-            DBMS_SQL.CLOSE_CURSOR(l_cursor);
-            RAISE_APPLICATION_ERROR(-20702, 'RPT_PDF: el cursor devuelve ' || l_count
-                || ' columnas y la tabla declara ' || p_columns.COUNT || '.');
-        END IF;
-
-        FOR i IN 1 .. l_count LOOP
-            l_types(i) := CASE
-                WHEN l_desc(i).col_type IN (2, 100, 101) THEN 2
-                WHEN l_desc(i).col_type IN (12, 180, 181, 231) THEN 12
-                ELSE 1
-            END;
-            IF l_types(i) = 2 THEN
-                DBMS_SQL.DEFINE_COLUMN(l_cursor, i, l_number);
-            ELSIF l_types(i) = 12 THEN
-                DBMS_SQL.DEFINE_COLUMN(l_cursor, i, l_date);
-            ELSE
-                DBMS_SQL.DEFINE_COLUMN(l_cursor, i, l_text, 4000);
-            END IF;
-            l_x(i) := CASE WHEN i = 1 THEN p_x ELSE l_x(i - 1) + p_columns(i - 1).width_mm END
-                      + p_columns(i).gap_mm;
-            l_sums(i) := 0;
-            l_has_sums := l_has_sums OR p_columns(i).summary = 'SUM';
-        END LOOP;
-
-        -- Título y cabecera nunca quedan solos al final de una página.
-        ensure_space(4 + c_header_mm + p_row_mm * 2, FALSE);
-        IF p_title IS NOT NULL THEN
-            rect(p_x, p_y, p_title_w_mm, 3.2, 'BFBFBF', NULL);
-            set_font(c_italic, p_font_pt + 0.5);
-            text(p_x + 0.5, p_y + 2.5, p_title);
-            p_y := p_y + 3.4;
-        END IF;
-        draw_header;
-
-        WHILE DBMS_SQL.FETCH_ROWS(l_cursor) > 0 LOOP
-            ensure_space(p_row_mm, TRUE);
-            set_font(c_regular, p_font_pt);
-            FOR i IN 1 .. l_count LOOP
-                IF l_types(i) = 2 THEN
-                    DBMS_SQL.COLUMN_VALUE(l_cursor, i, l_number);
-                    l_text := CASE
-                        WHEN l_number IS NULL THEN NULL
-                        WHEN p_columns(i).format IS NULL THEN TO_CHAR(l_number, 'TM9', c_nls)
-                        ELSE TRIM(TO_CHAR(l_number, p_columns(i).format, c_nls))
-                    END;
-                    IF p_columns(i).summary = 'SUM' THEN
-                        l_sums(i) := l_sums(i) + NVL(l_number, 0);
-                    END IF;
-                ELSIF l_types(i) = 12 THEN
-                    DBMS_SQL.COLUMN_VALUE(l_cursor, i, l_date);
-                    l_text := TO_CHAR(l_date, NVL(p_columns(i).format, 'DD/MM/YYYY'));
-                ELSE
-                    DBMS_SQL.COLUMN_VALUE(l_cursor, i, l_text);
-                END IF;
-                text(l_x(i) + 0.8, p_y + p_row_mm - 0.8, l_text, NVL(p_columns(i).align, 'L'),
-                     p_columns(i).width_mm - 1.6);
-            END LOOP;
-            line(p_x, p_y + p_row_mm, l_x(l_count) + p_columns(l_count).width_mm, p_y + p_row_mm, 0.2, 'D9D9D9');
-            p_y := p_y + p_row_mm;
-        END LOOP;
-        DBMS_SQL.CLOSE_CURSOR(l_cursor);
-
-        IF l_has_sums THEN
-            ensure_space(p_row_mm + 0.6, FALSE);
-            set_font(c_regular, p_font_pt);
-            FOR i IN 1 .. l_count LOOP
-                IF p_columns(i).summary = 'SUM' THEN
-                    rect(l_x(i), p_y + 0.2, p_columns(i).width_mm, p_row_mm, 'D9D9D9', '000000', 0.4);
-                    text(l_x(i) + 0.8, p_y + p_row_mm - 0.6,
-                         TRIM(TO_CHAR(l_sums(i), NVL(p_columns(i).format, 'FM999G999G990D00'), c_nls)),
-                         'R', p_columns(i).width_mm - 1.6);
-                END IF;
-            END LOOP;
-            p_y := p_y + p_row_mm + 0.6;
-        END IF;
-        p_y := p_y + 2;
-    EXCEPTION
-        WHEN OTHERS THEN
-            IF DBMS_SQL.IS_OPEN(l_cursor) THEN
-                DBMS_SQL.CLOSE_CURSOR(l_cursor);
-            END IF;
-            RAISE;
-    END print_table;
 
 END rpt_pdf;
 /

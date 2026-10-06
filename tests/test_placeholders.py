@@ -73,6 +73,14 @@ class PlaceholderTests(unittest.TestCase):
                 self.assertIsNone(parse_column_placeholder(text, diagnostics, "cell"))
                 self.assertTrue(diagnostics.has_errors)
 
+    def test_empty_markers_are_reported_as_pending(self) -> None:
+        diagnostics = Diagnostics()
+        validate_text_placeholders("{{REPORT_TITLE}} {{FIELD:}}", allowed_kinds={"REPORT_TITLE", "FIELD"},
+                                   diagnostics=diagnostics, location="header")
+        self.assertIsNone(parse_column_placeholder("{{COLUMN:}}", diagnostics, "cell"))
+        self.assertEqual([item.code for item in diagnostics.items], ["TOKEN-006", "TOKEN-006"])
+        self.assertIn("{{COLUMN:ALIAS}}", diagnostics.items[1].suggestion)
+
 
 if __name__ == "__main__":
     unittest.main()

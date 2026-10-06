@@ -35,6 +35,7 @@ from .docx_reader import (
     _scan_prohibited_elements,
     _validate_a4,
 )
+from .placeholders import report_empty_marker
 from .security import inspect_docx_zip
 
 
@@ -67,7 +68,18 @@ def is_layout_docx(path: Path) -> bool:
     except Exception:
         return False
     text = document.element.xml
-    return bool(re.search(r"\{\{\s*(COLUMN|FIELD|SUM)\s*:\s*[A-Za-z][\w$#]*\.", text))
+    if re.search(r"\{\{\s*(COLUMN|FIELD|SUM)\s*:\s*[A-Za-z][\w$#]*\.", text) or re.search(r"\{\{\s*SUM\s*:", text):
+        return True
+    # El modo simple admite una sola tabla y ninguna en encabezado o pie: más que eso es
+    # modo layout aunque los marcadores aún estén sin completar ({{COLUMN:}}).
+    if len(document.tables) > 1:
+        return True
+    return any(
+        bool(zone.tables)
+        for section in document.sections
+        for zone in (section.header, section.footer)
+        if not zone.is_linked_to_previous
+    )
 
 
 class _Reader:
@@ -86,6 +98,8 @@ class _Reader:
             self.diagnostics.error("LAYOUT-TOKEN-001", "Hay llaves de marcador sin cerrar.", location=location)
         for match in TOKEN_PATTERN.finditer(text):
             inner = match.group(1).strip(" ").upper()
+            if report_empty_marker(match.group(0), inner, self.diagnostics, location, "LAYOUT-TOKEN-008", layout=True):
+                continue
             parsed = MARKER_PATTERN.match(inner)
             if parsed is None:
                 self.diagnostics.error(
