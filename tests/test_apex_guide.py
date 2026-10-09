@@ -50,11 +50,35 @@ class ApexGuideTests(unittest.TestCase):
         broken.write_text("{}", encoding="utf-8")
         self.assertEqual(build_apex_guide(validate_project(broken)), "")
 
-    def test_gui_text_shows_guide_only_after_compiling(self) -> None:
+    def test_gui_text_shows_guide_after_validating_and_compiling(self) -> None:
         validated = _format_result(validate_project(EXAMPLE))
-        self.assertNotIn("QUÉ SUBIR A APEX", validated)
+        self.assertIn("QUÉ SUBIR A APEX", validated)                   # también al validar
+        self.assertIn("no se escribió ningún archivo", validated)
         compiled = _format_result(compile_project(EXAMPLE, self.root / "out"), compiled=True)
         self.assertIn("QUÉ SUBIR A APEX", compiled)
+
+    def test_process_code_is_available_after_validating(self) -> None:
+        from corporate_report_compiler.apex_guide import process_code
+
+        code = process_code(validate_project(EXAMPLE))
+        self.assertIn("pkg_corporate_reports.download_query", code)
+
+    def test_detailed_instructions_depend_on_the_mode(self) -> None:
+        from corporate_report_compiler.apex_guide import build_detailed_instructions, process_code
+
+        simple = build_detailed_instructions(validate_project(EXAMPLE))
+        self.assertIn("SQL Workshop > SQL Scripts > Upload", simple)
+        self.assertIn("NO use SQL Workshop > SQL Commands", simple)
+        self.assertIn("sql\\modo_simple\\pkg_corporate_reports.sql", simple)
+        layout_project = ROOT / "proyectos" / "demo" / "estado_cuenta" / "generado" / "estado_cuenta.report.json"
+        result = validate_project(layout_project)
+        layout = build_detailed_instructions(result)
+        self.assertIn("Modo: LAYOUT", layout)
+        self.assertIn("sql\\modo_layout\\rpt_layout.pkb", layout)
+        self.assertIn("rpt_estado_cuenta.sql", layout)
+        self.assertIn("No se necesita nada en la página 0", layout)
+        self.assertIn("P71_COD_ALUMNO", layout)
+        self.assertIn("rpt_estado_cuenta.build(", process_code(result))
 
     def test_default_output_drops_report_suffix(self) -> None:
         self.assertEqual(default_output(Path("C:/p/ventas.report.json")), Path("C:/p/build/ventas"))

@@ -152,10 +152,13 @@ apex-report-compiler-gui
 | Botón | Resultado |
 |---|---|
 | Nuevo proyecto desde DOCX… | Copia el Word a proyectos\<nombre>\ y crea **automáticamente** en generado\ el <nombre>.report.json y el <nombre>.sql, con un filtro opcional por columna. Cada filtro se enlaza a un Page Item PXX_<ALIAS> (o P42_<ALIAS> si indica el número de página) y cada {{FIELD:NOMBRE}} a PXX_<NOMBRE>. Si la carpeta ya existe, pide confirmación y guarda copias .bak (sección 2.2). |
-| Validar | Revisa DOCX, SQL y proyecto sin escribir archivos. |
+| Validar | Revisa DOCX, SQL y proyecto sin escribir archivos y, si es válido, muestra los mismos pasos de APEX que Compilar y activa «Copiar código APEX». |
 | Compilar | Genera **automáticamente** apex_process.sql en proyectos\<nombre>\ y template.json y validation.json en generado\, y muestra qué subir a APEX y dónde: el package, la tabla de Page Items con su tipo sugerido, el botón, el proceso y la ruta exacta de apex_process.sql. |
-| Copiar código APEX | Copia apex_process.sql al portapapeles para pegarlo en el proceso. |
+| Copiar código APEX | Copia al portapapeles el bloque PL/SQL del proceso (el contenido de apex_process.sql), tras Validar o Compilar. |
 | Abrir carpeta de salida | Abre proyectos\<nombre>\, donde está apex_process.sql. |
+| Instrucciones APEX detalladas | Abre una ventana con la guía completa para el proyecto actual, según su modo (simple o layout): dónde se ejecuta cada SQL (SQL Scripts, SQL Developer con F5, SQL*Plus/SQLcl; nunca SQL Commands), qué se instala una sola vez y qué en cada compilación, qué va en la Page Global (página 0) y con qué valores, cada Page Item de la página con su tipo, el botón, el proceso y las pruebas. Tiene botones para copiar el código APEX y las instrucciones. |
+
+Al cargar el Word, validar y compilar, el resultado empieza siempre con el bloque «PÁGINA APEX Y PAGE ITEMS»: recuerda la página APEX elegida (o XX si aún no tiene número) y lista los Page Items que deben existir en APEX, con su tipo y el bind o filtro al que alimentan.
 
 Ejemplo de lo que genera automáticamente en `generado\entidades.sql` para `entidades.docx` con página 42 (extracto comentado; los comentarios `--` son válidos en SQL):
 
@@ -625,6 +628,13 @@ Diagnóstico | Revisar APEX Debug | el mensaje del package indica el bind, colum
 | «SyntaxError … JSON» al descargar | Reload on Submit en Only for Success | Cambiarlo a Always en la página |
 | TOKEN-005 | {{FIELD:APP_USER}} u otro nombre reservado | Escribir {{APP_USER}} sin FIELD: |
 | TOKEN-006 / LAYOUT-TOKEN-008 | Marcador sin completar ({{FIELD:}}, {{COLUMN:}}, {{SUM:}}), típico de una plantilla generada con la IA | Escribir el nombre: ALIAS o NOMBRE en modo simple, CONSULTA.COLUMNA en modo layout |
+| LAYOUT-TOKEN-009 | Un nombre de {{COLUMN:}} o {{SUM:}} no existe en el Modelo de Datos de Reports | Corregir el nombre; el mensaje sugiere el más parecido |
+| LAYOUT-TABLE-007 | Una fila de grupo no está justo encima de la fila que se repite | Mover la fila de grupo debajo de los títulos de columna |
+| LAYOUT-REPORTS-011 | Código de Reports que no se pudo convertir (SRW, nombres inexistentes, condición de Data Link) | Corregir el archivo que indica el mensaje y recompilar |
+| LAYOUT-REPORTS-012 | Una fórmula, total o Data Link usa una consulta que no está en 'queries' | Volver a cargar el Word con el .rdf (la crea sola) o agregarla |
+| LAYOUT-REPORTS-013 | El código de Reports usa un parámetro no declarado | Declararlo en 'parameters' o en 'constants' |
+| LAYOUT-REPORTS-014 | Las fórmulas llaman a funciones de la base de datos | Verificar que existan en el parsing schema |
+| REPORTS-001 | No se encontró rwconverter.exe | Definir la variable RWCONVERTER o convertir el .rdf a .xml en Reports Builder |
 
 ## 12. Mantenimiento recomendado
 
@@ -657,7 +667,9 @@ Usuario final | Descargar | el package ejecuta las consultas y dibuja el PDF
 | Elemento | Cómo se escribe en Word | Resultado |
 |---|---|---|
 | Tabla de datos | Una fila con {{COLUMN:CONSULTA.COLUMNA}}; las filas anteriores son cabecera y las posteriores, totales | Una fila por registro; la cabecera se repite en cada página |
-| Totales | {{SUM:CONSULTA.COLUMNA}} en las filas posteriores | Suma de la columna en la tabla |
+| Varias consultas en una tabla | Una fila {{COLUMN:...}} por consulta, una debajo de otra (como los marcos de Oracle Reports) | Cada sección se imprime con sus propias filas, títulos y totales |
+| Totales | {{SUM:CONSULTA.COLUMNA}} debajo de la fila que se repite, o encima (por ejemplo junto al título) | Suma de la columna en la tabla; arriba se calcula antes de dibujar las filas |
+| Fila de grupo | Fila justo encima de la que se repite, con {{FIELD:CONSULTA.COLUMNA}} de la misma consulta (y, si se quiere, {{SUM:...}}) | Se imprime cada vez que cambia ese dato, con el subtotal del grupo (grupos de ruptura de Reports) |
 | Campo de una consulta | {{FIELD:CONSULTA.COLUMNA}} en cualquier párrafo o celda | Primera fila de la consulta (grupo maestro) |
 | Parámetro o constante | {{FIELD:NOMBRE}} | Valor del parámetro o de constants |
 | Número de página | {{PAGE}} y {{PAGES}}, solo en el encabezado o pie de Word | 1 DE 3 |
@@ -667,7 +679,7 @@ Usuario final | Descargar | el package ejecuta las consultas y dibuja el PDF
 
 La primera versión del Word puede generarse con el prompt `docs\PROMPT_IA_PLANTILLA.txt` a partir de capturas del reporte original. La IA deja vacíos `{{FIELD:}}`, `{{COLUMN:}}` y `{{SUM:}}`: Informática los completa en Word con CONSULTA.COLUMNA; la validación lista cada marcador pendiente con su tabla, fila y columna (LAYOUT-TOKEN-008).
 
-Se mantienen las restricciones de seguridad del modo simple (sin imágenes, macros, campos de Word ni contenido externo). No se admiten celdas combinadas en vertical ni tablas anidadas, y el texto de una celda no se parte en varias líneas automáticamente: use saltos de línea manuales. Las fuentes se imprimen como Helvetica.
+Se mantienen las restricciones de seguridad del modo simple (sin imágenes, macros, campos de Word ni contenido externo). No se admiten celdas combinadas en vertical ni tablas anidadas, y el texto de una celda no se parte en varias líneas automáticamente: use saltos de línea manuales. Las fuentes se imprimen como Helvetica; negrita, cursiva, subrayado y tachado sí se imprimen (cualquier tipo de subrayado sale como línea simple).
 
 Ejemplo comentado (extracto de `proyectos\demo\estado_cuenta\estado_cuenta.docx`, un ejemplo ficticio):
 
@@ -713,9 +725,10 @@ Pie de Word:  Generado por {{APP_USER}}   [{{PAGE}}] DE [{{PAGES}}]
 | Query | Un archivo generado\q_<nombre>.sql con el mismo SELECT |
 | Group maestro | {{FIELD:CONSULTA.COLUMNA}} (primera fila) |
 | Group repetitivo | Tabla de datos con {{COLUMN:CONSULTA.COLUMNA}} |
-| Formula Column | Expresión en el SELECT (o función PL/SQL llamada desde el SELECT) |
-| Summary Column | {{SUM:...}} en la tabla, o SUM en una consulta de resumen |
-| Data Link | El mismo parámetro :P_NOMBRE en la consulta hija |
+| Formula Column | Con el .rdf: se convierte sola (sección 13.4). Sin él: expresión en el SELECT |
+| Placeholder Column | Con el .rdf: toma el valor que le asignan las fórmulas (sección 13.4) |
+| Summary Column | {{SUM:...}} en la tabla; con el .rdf también {{FIELD:CS_...}} (sección 13.4) |
+| Data Link | Con el .rdf: el motor filtra la consulta hija (sección 13.4). Sin él: el mismo parámetro :P_NOMBRE en la consulta hija |
 
 ### 13.3 Instalación y publicación
 
@@ -724,3 +737,82 @@ Pie de Word:  Generado por {{APP_USER}}   [{{PAGE}}] DE [{{PAGES}}]
 3. Cree los Page Items de `parameters`, el botón (Submit Page, Reload on Submit: Always) y el proceso con `apex_process.sql`, igual que en la sección 9.
 
 El ejemplo ficticio `proyectos\demo\estado_cuenta` (estado de cuenta de un alumno de una academia de demostración) usa las tablas de prueba `PRUEBAP_ALUMNO*`; `proyectos\demo\estado_cuenta\datos_prueba.sql` las crea solo si no existen y nunca borra datos. `proyectos\demo\estado_cuenta\ejemplo_estado_cuenta.pdf` muestra el resultado.
+
+### 13.4 Importar el Modelo de Datos de Oracle Reports
+
+Si existe el `.rdf` del reporte original, no hace falta decidir ni recordar a qué consulta pertenece cada dato: el compilador lo lee del Modelo de Datos. En el Word basta escribir, después de los dos puntos, el **nombre del campo** que se ve en el diseño de Reports o su **Origen** (paleta de propiedades):
+
+```
+{{FIELD:F_96}}          <- campo del diseño (su Origen es CF_SALDO_DIFERENCIA)
+{{COLUMN:F_115}}        <- o {{COLUMN:INTERES2}}, el Origen: es lo mismo
+{{SUM:F_108}}           <- total (CS_INTERES9 = suma de INTERES2)
+```
+
+Al cargar el Word con «Nuevo proyecto desde DOCX», responda **Sí** a «¿Tiene el .rdf…?» y elija el `.rdf` (o el `.xml` convertido). Desde la línea de comandos:
+
+```
+apex-report-compiler new --docx C:\Migracion\PFR201.docx --page 75 --reports C:\Migracion\PFR201_3.RDF
+```
+
+```flujo
+# Figura 7. Importación desde Oracle Reports
+Informática | Escribir en el Word los nombres de Reports | {{FIELD:F_96}}, {{COLUMN:INTERES2}}, {{SUM:F_108}}, sin consulta
+Compilador | Convertir el .rdf con rwconverter | lee consultas, grupos, columnas, fórmulas, totales, campos y parámetros
+Compilador | Resolver cada marcador | campo → Origen → consulta; máscara de formato de Reports si no se escribió otra
+? Compilador | ¿Todos los nombres existen en Reports? | No: LAYOUT-TOKEN-009 con sugerencias del nombre más parecido
+Compilador | Crear un q_<consulta>.sql por consulta necesaria | con el SQL real de Reports, sin cambios
+Compilador | Convertir el código de Reports | fórmulas, funciones auxiliares, marcadores de posición, totales y Data Links
+? Compilador | ¿Quedó algo sin convertir? | Sí: la GUI lo lista en «FALTA INSERTAR O REVISAR» y crea generado\codigo_reports\<función>.sql
+Informática | Corregir solo lo listado | con la sintaxis de Reports, y volver a compilar
+```
+
+Qué hace la importación:
+
+| En Oracle Reports | Resultado |
+|---|---|
+| Campo del diseño (F_x) | Se reemplaza por su Origen; su máscara de formato se copia al marcador (N se convierte en 9) |
+| Columna de una consulta | CONSULTA.COLUMNA automático; la consulta se copia tal cual a generado\q_<consulta>.sql |
+| Columna renombrada por Reports (NRO_SOL1, INTERES2) | El motor nombra las columnas por su posición en el SELECT, así el SQL no se modifica |
+| Total (CS_) en {{SUM:}} | Función sum: la tabla suma la columna origen. Otras (count, maximum, minimum, average, first, last): lo calcula el motor |
+| Total (CS_) en {{FIELD:}} o {{COLUMN:}} | El motor recorre su consulta y lo calcula |
+| Total en el mismo grupo que su origen (por ejemplo CS_K1, la numeración 1, 2, 3) | Acumulado fila a fila, y vuelve a cero cuando cambia el grupo indicado en «Restablecer en» |
+| Consulta que usa :COLUMNA de otro grupo en su SQL (por ejemplo `where cod_adm = :TITULAR`) | El motor toma el valor de la fila actual de ese grupo; no hace falta declararla como parámetro |
+| Marco que no tiene filas | La sección de la tabla no se imprime (ni su título ni sus totales), como en Reports |
+| Fórmula (CF_) | Su función PL/SQL se copia al package `rpt_<reporte>`; cada `:NOMBRE` se lee del motor. Se calcula por cada fila de su grupo, como en Reports |
+| Funciones auxiliares (program units) que llaman las fórmulas | Se copian igual al package |
+| Marcador de posición (CP_) | Toma el valor que le asignan las fórmulas (`:CP_X := ...` o `INTO :CP_X`) |
+| Data Link | El motor filtra cada fila de la consulta hija con la columna de la fila actual del grupo padre; el SQL no se toca |
+| Consulta usada solo por fórmulas, totales o Data Links | También se crea su q_<consulta>.sql |
+| Parámetro de usuario usado en el SQL o en una fórmula | Se declara en parameters con el Page Item P<página>_<NOMBRE> |
+
+Ejemplo de conversión (la fórmula queda legible y equivalente):
+
+```
+-- En Oracle Reports                       -- En rpt_<reporte>.sql
+function CF_ATRASOFormula return Number is  function CF_ATRASOFormula return Number is
+  IMPORTE NUMBER := 0;                          rr_cf_pagos NUMBER := rpt_layout.num('CF_PAGOS');
+begin                                           rr_cp_reg_int NUMBER := rpt_layout.num('CP_REG_INT');
+  IMPORTE := NVL(:CF_PAGOS,0)                   IMPORTE NUMBER := 0;
+           - NVL(:CP_REG_INT,0);              begin
+  return IMPORTE;                                 IMPORTE := NVL(rr_cf_pagos,0) - NVL(rr_cp_reg_int,0);
+end;                                              return IMPORTE;
+                                              end;
+```
+
+Lo que **no** se convierte solo y la GUI lista como pendiente (en Validar y en Compilar, bajo «CÓDIGO DE ORACLE REPORTS → FALTA INSERTAR O REVISAR»):
+
+| Pendiente | Qué hacer |
+|---|---|
+| Fórmula que usa el paquete SRW, o un nombre que no existe en el Modelo de Datos (LAYOUT-REPORTS-011) | Corregir `generado\codigo_reports\<función>.sql`, que trae el código original. Se escribe con la sintaxis de Reports (`:NOMBRE`) y se convierte al compilar. Mientras tanto la fórmula devuelve NULL. Volver a cargar el Word no pisa ese archivo |
+| Data Link con una condición distinta de =, <>, <, <=, >, >= (LAYOUT-REPORTS-011) | Agregar la condición a mano en el q_<consulta>.sql de la consulta hija |
+| Marcador de posición que ninguna fórmula asigna (LAYOUT-REPORTS-011) | Queda vacío; revisar si en Reports lo asignaba un disparador |
+| Funciones de la base de datos que llaman las fórmulas (LAYOUT-REPORTS-014) | Comprobar que existan en el parsing schema de APEX (o sinónimo y EXECUTE) |
+
+Reglas:
+
+- No cambie el orden del SELECT copiado de Reports: los nombres de columna se asignan por posición.
+- Para agregar columnas a una consulta, agréguelas **al final** del SELECT con su alias.
+- No agregue al SQL la condición de un Data Link convertido: el motor ya la aplica.
+- Los disparadores de formato (format triggers) y de reporte no se convierten: el aspecto lo define el Word.
+
+La conversión del `.rdf` usa `rwconverter.exe`, que viene con Reports Builder. Se busca en `D:\oracle\Middleware\FR_Home\bin` y `C:\oracle\Middleware\FR_Home\bin`; si está en otra ruta, defina la variable de entorno `RWCONVERTER`. El XML convertido queda en `generado\<nombre>.reports.xml` y el proyecto lo referencia con la clave `reports_model`, de modo que no se vuelve a convertir al compilar.

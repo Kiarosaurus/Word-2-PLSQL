@@ -11,7 +11,15 @@ from pathlib import Path
 from corporate_report_compiler.cli import main
 from corporate_report_compiler.compiler import compile_project, validate_project
 from corporate_report_compiler.gui import default_output
-from corporate_report_compiler.workspace import files_to_replace, import_docx, workspace_outputs
+from corporate_report_compiler.workspace import (
+    existing_page,
+    files_to_replace,
+    import_docx,
+    page_placeholder_locations,
+    remove_temporary,
+    temporary_files,
+    workspace_outputs,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +38,44 @@ class ImportDocxTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_reimport_proposes_previous_page_and_lists_pending_placeholders(self) -> None:
+        self.assertIsNone(existing_page(self.source, self.projects))
+        import_docx(self.source, projects_root=self.projects)
+        folder = self.projects / "ventas"
+        found = page_placeholder_locations(folder)
+        self.assertTrue(found)
+        self.assertTrue(all(path.name == "ventas.report.json" for path, _line, _items in found), found)
+        self.assertTrue(all(item.startswith("PXX_") for _path, _line, items in found for item in items))
+
+        import_docx(self.source, projects_root=self.projects, page="42", replace=True)
+        self.assertEqual(existing_page(self.source, self.projects), "42")
+        self.assertEqual(page_placeholder_locations(folder), [])     # las copias .bak no cuentan
+
+    def test_temporary_files_are_listed_and_removed(self) -> None:
+        import_docx(self.source, projects_root=self.projects)
+        import_docx(self.source, projects_root=self.projects, page="42", replace=True)    # deja copias .bak
+        folder = self.projects / "ventas"
+        (folder / ".generado-abcd1234").mkdir()                                          # compilación cortada
+        conversion = self.projects / "_temporal" / "rwconverter" / "pfr-xyz"
+        conversion.mkdir(parents=True)
+        (conversion / "pfr.xml").write_text("<report/>", encoding="utf-8")
+        system_temp = self.base / "temp"
+        (system_temp / "reports-xml-old").mkdir(parents=True)
+        (system_temp / "otra-cosa").mkdir()
+
+        items = temporary_files(self.projects, system_temp=system_temp)
+        paths = {item.path for item in items}
+        self.assertIn(conversion, paths)
+        self.assertIn(folder / ".generado-abcd1234", paths)
+        self.assertIn(system_temp / "reports-xml-old", paths)
+        self.assertTrue(any(path.suffix == ".bak" for path in paths))
+        self.assertNotIn(system_temp / "otra-cosa", paths)
+
+        self.assertEqual(remove_temporary(items), [])
+        self.assertEqual(temporary_files(self.projects, system_temp=system_temp), [])
+        self.assertTrue((folder / "generado" / "ventas.report.json").is_file())          # el proyecto sigue
+        self.assertTrue((system_temp / "otra-cosa").is_dir())
 
     def test_docx_is_copied_into_folder_with_its_name(self) -> None:
         result = import_docx(self.source, projects_root=self.projects, page="42")

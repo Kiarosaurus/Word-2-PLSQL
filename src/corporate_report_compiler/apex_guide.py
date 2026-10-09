@@ -100,6 +100,203 @@ def page_item_rows(result: CompilationResult) -> list[tuple[str, ...]]:
     return rows
 
 
+def expected_artifact(result: CompilationResult, name: str) -> Path | None:
+    """Ruta de un archivo generado: la real si ya se compiló, o la que tendrá al compilar."""
+
+    found = next((path for path in result.artifacts if path.name == name), None)
+    if found is not None:
+        return found
+    from .workspace import workspace_outputs
+
+    folders = workspace_outputs(result.project_path)
+    if folders is None:
+        return None
+    generated, project_dir = folders
+    return (project_dir if name == "apex_process.sql" or name.startswith("rpt_") else generated) / name
+
+
+def process_code(result: CompilationResult) -> str | None:
+    """Bloque PL/SQL del proceso APEX, generado en memoria (sirve también tras Validar)."""
+
+    if not result.valid or result.definition is None:
+        return None
+    if result.kind == "layout":
+        from .layout_compiler import build_layout_process
+
+        return build_layout_process(result.definition)
+    if result.project is None:
+        return None
+    from .emitter import build_apex_process
+
+    return build_apex_process(result.definition, result.project)
+
+
+def _project_items(result: CompilationResult) -> list[dict]:
+    """Page Items del .report.json (aunque el proyecto tenga errores)."""
+
+    try:
+        raw = json.loads(Path(result.project_path).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return []
+    items = []
+    for entry in raw.get("parameters") or raw.get("bindings") or []:
+        if isinstance(entry, dict) and entry.get("item"):
+            items.append({"item": str(entry["item"]).upper(), "type": str(entry.get("type") or "VARCHAR2").upper(),
+                          "bind": str(entry.get("name") or entry.get("bind") or "").upper(),
+                          "required": bool(entry.get("required")), "mask": entry.get("format_mask")})
+    for field in raw.get("fields") or []:
+        if isinstance(field, dict) and str(field.get("source", "")).upper() == "ITEM" and field.get("item"):
+            items.append({"item": str(field["item"]).upper(), "type": str(field.get("type") or "VARCHAR2").upper(),
+                          "bind": f"{{{{FIELD:{field.get('name')}}}}}", "required": False,
+                          "mask": field.get("format_mask")})
+    for key, values in (("format_item", "PDF, XLSX"), ("orientation_item", "AUTO, PORTRAIT, LANDSCAPE")):
+        if raw.get(key):
+            items.append({"item": str(raw[key]).upper(), "type": "LIST", "bind": key, "required": False,
+                          "mask": values})
+    return items
+
+
+def build_detailed_instructions(result: CompilationResult) -> str:
+    """Instrucciones detalladas para publicar el reporte en APEX 24.2, según el modo."""
+
+    layout = result.kind == "layout"
+    definition = result.definition or {}
+    report = definition.get("report", {})
+    package = (report.get("package") or "rpt_<reporte>").lower()
+    process = expected_artifact(result, "apex_process.sql")
+    package_file = expected_artifact(result, f"{package}.sql") if layout else None
+    items = _project_items(result)
+    global_items = [item for item in items if item["item"].startswith("P0_")]
+    page_items = [item for item in items if not item["item"].startswith("P0_")]
+    pages = sorted({_page_of(item["item"]) for item in page_items}) or ["<su página>"]
+    page = pages[0]
+    button = "DESCARGAR" if layout else f"DOWNLOAD_{report.get('id') or definition.get('report', {}).get('id', 'REPORTE')}"
+    mode = ("LAYOUT (motor PDF en PL/SQL: RPT_PDF + RPT_LAYOUT + package del reporte; solo PDF)" if layout
+            else "SIMPLE (APEX_DATA_EXPORT con PKG_CORPORATE_REPORTS; PDF y XLSX)")
+
+    lines = [
+        "INSTRUCCIONES DETALLADAS PARA APEX 24.2",
+        "=" * 39,
+        f"Proyecto: {result.project_path}",
+        f"Modo: {mode}",
+        "",
+    ]
+    if not result.valid:
+        lines += ["ATENCIÓN: el proyecto tiene errores. Corríjalos y pulse Validar o Compilar; mientras tanto",
+                  "estas instrucciones son orientativas.", ""]
+    lines += [
+        "DÓNDE SE EJECUTA CADA SQL",
+        "-" * 25,
+        "Todo se ejecuta conectado al PARSING SCHEMA de la aplicación APEX (el esquema dueño de las tablas",
+        "que usa el reporte; en APEX: Shared Components > Security Attributes > Parsing Schema).",
+        "  - SQL Workshop > SQL Scripts > Upload > (elegir archivo) > Run: recomendado; admite archivos con",
+        "    varios bloques terminados en «/». Revise el resultado: «Statements Processed» sin errores.",
+        "  - SQL Developer: abra el archivo y use «Run Script» (F5), no «Run Statement» (Ctrl+Enter).",
+        "  - SQL*Plus o SQLcl: @ruta\\archivo.sql (los install.sql están pensados para esto).",
+        "  - NO use SQL Workshop > SQL Commands: ejecuta una sola sentencia y no sirve para packages.",
+        "Después de instalar, verifique en SQL Commands:",
+    ]
+    objects = "'RPT_PDF','RPT_LAYOUT','" + package.upper() + "'" if layout else "'PKG_CORPORATE_REPORTS'"
+    lines += [
+        f"  select object_name, object_type, status from user_objects where object_name in ({objects});",
+        "  (todos VALID; si alguno queda INVALID: select * from user_errors order by name, sequence;)",
+        "",
+        "PASO 1. UNA SOLA VEZ POR PARSING SCHEMA: el motor común",
+        "-" * 54,
+    ]
+    if layout:
+        lines += [
+            "  En SQL Scripts suba y ejecute, EN ESTE ORDEN:",
+            "    sql\\modo_layout\\rpt_pdf.pks",
+            "    sql\\modo_layout\\rpt_pdf.pkb",
+            "    sql\\modo_layout\\rpt_layout.pks",
+            "    sql\\modo_layout\\rpt_layout.pkb",
+            "  o, en SQL*Plus/SQLcl/SQL Developer (F5): @sql\\modo_layout\\install.sql",
+            "  Vuelva a hacerlo solo cuando se actualice la herramienta (cambian esos archivos).",
+            "",
+            "PASO 2. CADA VEZ QUE COMPILE: el package del reporte",
+            "-" * 52,
+            f"  Archivo: {package_file or package + '.sql'}",
+            "  Súbalo y ejecútelo en SQL Scripts (o F5 en SQL Developer). Debe quedar VALID.",
+            "  Si las fórmulas convertidas de Oracle Reports llaman a funciones de la base de datos, esas",
+            "  funciones deben existir en el parsing schema (o tener sinónimo y permiso EXECUTE).",
+        ]
+    else:
+        lines += [
+            "  Archivo: sql\\modo_simple\\pkg_corporate_reports.sql",
+            "  Súbalo y ejecútelo en SQL Scripts (o @sql\\modo_simple\\install.sql en SQL*Plus/SQLcl).",
+            "",
+            "PASO 2. CADA VEZ QUE COMPILE",
+            "-" * 27,
+            "  No hay SQL que instalar: todo va dentro del proceso (paso 5).",
+        ]
+    lines += ["", "PASO 3. PAGE GLOBAL (página 0)", "-" * 30]
+    if global_items:
+        lines += [
+            "  Si la aplicación no tiene Global Page: Create Page > Global Page (queda como página 0).",
+            "  En Page Designer de la página 0: Rendering > Body > clic derecho > Create Region",
+            "  (Type: Static Content, por ejemplo «Opciones del reporte»). Para que solo aparezca en las",
+            f"  páginas de reportes: Server-side Condition > Current Page Is Contained Within Expression 1 = {page}.",
+            "  Dentro de esa región cree (clic derecho en la región > Create Page Item):",
+        ]
+        for item in global_items:
+            pairs = ("PDF / PDF, Excel / XLSX" if item["bind"] == "format_item"
+                     else "Automática / AUTO, Vertical / PORTRAIT, Horizontal / LANDSCAPE")
+            lines += [f"    {item['item']}: Identification > Type: Select List;",
+                      f"      List of Values > Type: Static Values; pares Display Value / Return Value: {pairs}",
+                      f"      (los Return Value deben ser exactamente {item['mask']})."]
+    else:
+        lines.append("  No se necesita nada en la página 0" + (" (el modo layout solo genera PDF)." if layout else "."))
+    title = f"PASO 4. PÁGINA {page}: los filtros (Page Items)"
+    lines += ["", title, "-" * len(title)]
+    if page_items:
+        lines += [
+            f"  En Page Designer de la página {page}: Rendering > Body > clic derecho > Create Region",
+            "  (Type: Static Content, por ejemplo «Filtros»). Dentro, clic derecho > Create Page Item:",
+        ]
+        for item in page_items:
+            kind = ITEM_TYPES.get(item["type"], item["type"])
+            extra = []
+            if item["required"]:
+                extra.append("Validation > Value Required: On")
+            if item["mask"]:
+                extra.append(f"Appearance > Format Mask: {item['mask']}")
+            lines.append(f"    {item['item']}  ({kind})  -> {':' + item['bind'] if not item['bind'].startswith('{') else item['bind']}")
+            if extra:
+                lines.append("      " + "; ".join(extra))
+        lines.append("  El nombre del item debe ser EXACTAMENTE el indicado: el proceso lo lee por nombre.")
+    else:
+        lines.append("  Ninguno: el reporte no tiene filtros.")
+    lines += [
+        "",
+        "PASO 5. BOTÓN Y PROCESO (misma página)",
+        "-" * 38,
+        f"  Botón: en la región de filtros, clic derecho > Create Button. Button Name: {button};",
+        "    Behavior > Action: Submit Page. (No use Dynamic Action ni «Execute Server-side Code».)",
+        "  Página: clic en el nombre de la página (raíz del árbol) > Advanced > Reload on Submit: Always.",
+        "    Con «Only for Success» la descarga falla (el navegador espera JSON).",
+        "  Proceso: pestaña Processing > Processes > clic derecho > Create Process.",
+        "    Identification > Type: Execute Code; Source > Location: Local Database; Language: PL/SQL.",
+        "    Source > PL/SQL Code: pegue el bloque completo (botón «Copiar código APEX» de esta ventana) o el",
+        f"    contenido de {process or 'apex_process.sql'}.",
+        f"    Server-side Condition > When Button Pressed: {button}.",
+        "    Security > Authorization Scheme: el mismo de la página.",
+        "  No agregue Branches después del proceso: la descarga termina la petición.",
+        "",
+        "PASO 6. PROBAR",
+        "-" * 14,
+        "  Ejecute la página, complete los filtros y pulse el botón: debe descargarse el "
+        + ("PDF." if layout else "PDF (y el XLSX si eligió formato)."),
+        "  Pruebe filtros vacíos, uno que no devuelva filas y un usuario sin permiso.",
+        "",
+        "LO QUE NO SE SUBE A APEX",
+        "-" * 24,
+        "  El .docx, el .report.json, los q_*.sql / .sql fuente, layout.json o template.json,",
+        "  validation.json y el XML de Reports: quedan en la carpeta del proyecto.",
+    ]
+    return "\n".join(lines)
+
+
 def build_apex_guide(result: CompilationResult) -> str:
     """Guía paso a paso para publicar un reporte compilado en APEX 24.2."""
 
@@ -110,7 +307,7 @@ def build_apex_guide(result: CompilationResult) -> str:
     project = result.project
     if not result.valid or project is None or result.definition is None:
         return ""
-    process = next((path for path in result.artifacts if path.name == "apex_process.sql"), None)
+    process = expected_artifact(result, "apex_process.sql")
     request = f"DOWNLOAD_{project.report_id}"[:255]
     lines = [
         "QUÉ SUBIR A APEX Y DÓNDE",

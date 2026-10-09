@@ -3,10 +3,13 @@ PROMPT: PLANTILLA WORD (MODO LAYOUT) A PARTIR DE CAPTURAS DE UN REPORTE ORACLE
 Copie todo lo que está debajo de la línea y adjunte las capturas.
 
 Nota para Informática (no forma parte del prompt): la IA deja los marcadores
-{{FIELD:}}, {{COLUMN:}} y {{SUM:}} VACÍOS. Antes de cargar el Word con
-«Nuevo proyecto desde DOCX», complete cada uno en Word con CONSULTA.COLUMNA
-(y la máscara si hace falta, por ejemplo {{COLUMN:CUOTAS.IMPORTE|FM999G999G990D00}}).
-Al validar, el compilador lista cada marcador pendiente con LAYOUT-TOKEN-008.
+{{FIELD:}}, {{COLUMN:}} y {{SUM:}} VACÍOS. Antes de cargar el Word, complete cada
+uno en Word con el nombre que ve en Oracle Reports: el del campo del diseño
+(F_96, F_115) o su Origen en la paleta de propiedades (INTERES2). Luego use
+«Nuevo proyecto desde DOCX» indicando el .rdf original: la herramienta averigua
+la consulta de cada dato y copia la máscara de formato (Manual, sección 13.4).
+Sin .rdf, complételos con CONSULTA.COLUMNA. Al validar, el compilador lista cada
+marcador pendiente con LAYOUT-TOKEN-008.
 =====================================================================
 
 Eres un especialista en migrar reportes de Oracle Forms/Reports a Oracle APEX 24.2. Te adjunto una o dos capturas de un mismo reporte:
@@ -35,7 +38,7 @@ Página y zonas:
 Marcadores. Escríbelos EXACTAMENTE así, sin nada entre los dos puntos y las llaves de cierre:
 - {{FIELD:}}  -> donde va un dato que aparece una sola vez (datos de cabecera, valores del resumen, totales generales que no están en una tabla).
 - {{COLUMN:}} -> en cada celda de la fila que se repite de una tabla de datos.
-- {{SUM:}}    -> en las celdas de totales, debajo de la fila que se repite.
+- {{SUM:}}    -> en las celdas de totales: debajo de la fila que se repite o, si el original los muestra arriba, encima de ella.
 - NUNCA escribas nombres, puntos, consultas, columnas ni máscaras dentro de {{FIELD:}}, {{COLUMN:}} o {{SUM:}}. Quedan vacíos SIEMPRE; Informática los completa.
 Marcadores integrados (estos sí van completos, porque no llevan nombre):
 - {{REPORT_TITLE}}: título del reporte (normalmente en el encabezado de Word, centrado).
@@ -46,8 +49,10 @@ Marcadores integrados (estos sí van completos, porque no llevan nombre):
 
 Tablas de datos (una por cada bloque repetitivo del original):
 - Filas ANTES de la fila de marcadores = cabecera (por ejemplo una banda gris con el título del bloque y una fila con los títulos de columna). Se repiten en cada página.
-- UNA fila con {{COLUMN:}}: cada celda tiene {{COLUMN:}} o queda vacía.
-- Filas DESPUÉS = totales, con {{SUM:}} en las columnas que el original totaliza.
+- UNA fila con {{COLUMN:}} por bloque: cada celda tiene {{COLUMN:}} o queda vacía.
+- Filas DESPUÉS = totales, con {{SUM:}} en las columnas que el original totaliza. Si el original muestra el total arriba (junto al título del bloque), póngalo en esa fila.
+- Si el original muestra un subtítulo que cambia dentro del bloque (por ejemplo "Planilla DITELE" antes de sus filas), hágalo una fila justo encima de la fila con {{COLUMN:}}, con {{FIELD:}} donde va el subtítulo.
+- Si el original apila varios bloques repetitivos con las mismas columnas (por ejemplo "Amortizaciones", "Moras"), puede ir todo en UNA tabla: cada bloque con su título, su fila {{COLUMN:}} y sus totales, uno debajo del otro.
 - Nada de tablas de datos dentro del encabezado o pie de Word.
 
 Tablas de maquetación (cuadrículas, recuadros, bandas, el resumen final, el encabezado y el pie):
@@ -57,7 +62,7 @@ Tablas de maquetación (cuadrículas, recuadros, bandas, el resumen final, el en
 
 Texto:
 - El texto de una celda NO salta de línea solo: si necesita varias líneas, use saltos de línea manuales (Mayús+Intro). Haga las columnas lo bastante anchas para los datos reales que se ven en la captura.
-- Fuente recomendada: Arial (todo se imprime como Helvetica). Negrita y cursiva sí; subrayado y tachado no se imprimen.
+- Fuente recomendada: Arial (todo se imprime como Helvetica). Negrita, cursiva, subrayado y tachado sí se imprimen.
 - Alinee a la derecha las celdas de importes y cantidades, al centro los códigos y fechas, a la izquierda los textos.
 - Las celdas y párrafos vacíos también ocupan alto: deje su marca de párrafo en 2 a 6 pt.
 
@@ -362,6 +367,6 @@ if __name__ == "__main__":
 5. RECORDATORIO FINAL
 ---------------------------------------------------------------------
 - La función diseno() de ejemplo es solo ilustrativa (una cabecera y una tabla): reemplázala COMPLETA con TODO el contenido de MIS capturas: encabezado, cabecera en cuadrícula, cada bloque repetitivo como tabla de datos con sus totales, los recuadros de resumen y el pie.
-- {{FIELD:}}, {{COLUMN:}} y {{SUM:}} siempre vacíos. {{PAGE}} y {{PAGES}} solo en el encabezado o pie de Word; {{COLUMN:}} solo en la fila que se repite; {{SUM:}} solo debajo de ella.
+- {{FIELD:}}, {{COLUMN:}} y {{SUM:}} siempre vacíos. {{PAGE}} y {{PAGES}} solo en el encabezado o pie de Word; {{COLUMN:}} solo en la fila que se repite; {{SUM:}} en las filas de título o de totales de su tabla.
 - Ante la duda entre parecido visual y validez, elige validez.
 - Recuerda: la respuesta es SOLO el archivo .docx.

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Modelo de Datos sintético con la estructura del XML de rwconverter (Oracle Reports).
+     Casos difíciles a propósito: NOMBRE1, PENSION2 y COD_ALUMNO1 tienen en el SQL otro
+     nombre; hay fórmulas (una usa una función auxiliar, otra asigna un marcador de
+     posición, otra usa SRW y no se puede convertir), totales sum y count, una
+     numeración (CS_FILA, acumulado por fila), una consulta sin filas, un Data Link y un parámetro. -->
+<report name="DEMO_RPT">
+  <data>
+    <userParameter name="P_COD" datatype="character" width="10" initialValue="A20240157"/>
+    <systemParameter name="DESTYPE" initialValue="Screen"/>
+    <dataSource name="Q_ALUMNO">
+      <select>select a.cod_alumno, a.nombre, a.costo_programa
+  from pruebap_alumno a
+ where a.cod_alumno = :P_COD</select>
+      <group name="G_ALUMNO">
+        <dataItem name="COD_ALUMNO" oracleDatatype="aFixedChar"><dataDescriptor expression="COD_ALUMNO" order="1"/></dataItem>
+        <dataItem name="NOMBRE1" oracleDatatype="aFixedChar"><dataDescriptor expression="NOMBRE" order="2"/></dataItem>
+        <dataItem name="COSTO" oracleDatatype="number"><dataDescriptor expression="COSTO_PROGRAMA" order="3"/></dataItem>
+        <formula name="CF_DOBLE" source="cf_dobleformula" datatype="number"/>
+        <formula name="CF_ETIQUETA" source="cf_etiquetaformula" datatype="character"/>
+        <formula name="CF_AVISO" source="cf_avisoformula" datatype="character"/>
+        <placeholder name="CP_ETIQUETA" datatype="character"/>
+      </group>
+    </dataSource>
+    <dataSource name="Q_CUOTAS">
+      <select>select c.nro_cuota, c.pension pen, c.servicios, c.cod_alumno
+  from pruebap_alumno_cuota c
+ where c.estado = 'P'
+ order by c.nro_cuota</select>
+      <group name="G_CUOTAS">
+        <dataItem name="NRO_CUOTA" oracleDatatype="number"><dataDescriptor expression="NRO_CUOTA" order="1"/></dataItem>
+        <dataItem name="PENSION2" oracleDatatype="number"><dataDescriptor expression="PEN" order="2"/></dataItem>
+        <dataItem name="SERVICIOS" oracleDatatype="number"><dataDescriptor expression="SERVICIOS" order="3"/></dataItem>
+        <dataItem name="COD_ALUMNO1" oracleDatatype="aFixedChar"><dataDescriptor expression="COD_ALUMNO" order="4"/></dataItem>
+        <formula name="CF_TOTAL_CUOTA" source="cf_total_cuotaformula" datatype="number"/>
+        <summary name="CS_FILA" source="NRO_CUOTA" function="count" reset="report" compute="report"/>
+      </group>
+    </dataSource>
+    <dataSource name="Q_VACIA">
+      <select>select c.nro_cuota, c.pension
+  from pruebap_alumno_cuota c
+ where c.cod_alumno = :COD_ALUMNO   -- columna del grupo padre, como bind
+   and 1 = 0</select>
+      <group name="G_VACIA">
+        <dataItem name="NRO_CUOTA2" oracleDatatype="number"><dataDescriptor expression="NRO_CUOTA" order="1"/></dataItem>
+        <dataItem name="PENSION3" oracleDatatype="number"><dataDescriptor expression="PENSION" order="2"/></dataItem>
+      </group>
+    </dataSource>
+    <summary name="CS_PENSION" source="PENSION2" function="sum" reset="report" compute="report"/>
+    <summary name="CS_CUOTAS" source="NRO_CUOTA" function="count" reset="report" compute="report"/>
+    <link parentGroup="G_ALUMNO" parentColumn="COD_ALUMNO" childQuery="Q_CUOTAS" childColumn="COD_ALUMNO1"
+          condition="eq" sqlClause="where"/>
+  </data>
+  <layout>
+    <section name="main">
+      <body>
+        <field name="F_NOMBRE" source="NOMBRE1"/>
+        <field name="F_COSTO" source="COSTO" formatMask="NNN,NN0.99"/>
+        <field name="F_DOBLE" source="CF_DOBLE" formatMask="999,990.00"/>
+        <field name="F_ETIQ" source="CP_ETIQUETA"/>
+        <field name="F_PEN" source="PENSION2" formatMask="NNN,NN0.99"/>
+        <field name="F_TOT_CUOTA" source="CF_TOTAL_CUOTA" formatMask="NNN,NN0.99"/>
+        <field name="F_TOTAL_PEN" source="CS_PENSION" formatMask="999,990.00"/>
+        <field name="F_CANT" source="CS_CUOTAS"/>
+        <field name="F_FILA" source="CS_FILA"/>
+      </body>
+    </section>
+  </layout>
+  <programUnits>
+    <function name="cf_dobleformula">
+      <textSource>function CF_DOBLEFormula return Number is
+begin
+  return doble(:costo);
+end;</textSource>
+    </function>
+    <function name="doble">
+      <textSource>function doble(p_valor in number) return number is
+begin
+  return p_valor * 2;
+end;</textSource>
+    </function>
+    <function name="cf_etiquetaformula">
+      <textSource>function CF_ETIQUETAFormula return Char is
+begin
+  :CP_ETIQUETA := 'Alumno: ' || :nombre1;   -- asigna el marcador de posición
+  return upper(:nombre1);
+end;</textSource>
+    </function>
+    <function name="cf_avisoformula">
+      <textSource>function CF_AVISOFormula return Char is
+begin
+  srw.message(100, 'aviso');
+  return 'x';
+end;</textSource>
+    </function>
+    <function name="cf_total_cuotaformula">
+      <textSource>function CF_TOTAL_CUOTAFormula return Number is
+begin
+  return nvl(:pension2, 0) + nvl(:servicios, 0);
+end;</textSource>
+    </function>
+  </programUnits>
+</report>

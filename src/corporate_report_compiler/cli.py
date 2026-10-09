@@ -11,7 +11,14 @@ from typing import Sequence
 from . import __version__
 from .apex_guide import PAGE_PLACEHOLDER
 from .compiler import CompilationResult, compile_project, validate_project
-from .workspace import format_import, import_docx, workspace_outputs
+from .workspace import (
+    format_import,
+    format_size,
+    import_docx,
+    remove_temporary,
+    temporary_files,
+    workspace_outputs,
+)
 
 
 def _add_validation_options(parser: argparse.ArgumentParser) -> None:
@@ -65,9 +72,39 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Reemplaza los archivos de una carga anterior; cada uno se guarda como generado/<archivo>.bak.",
     )
+    new.add_argument(
+        "--reports",
+        type=Path,
+        help="Reporte original de Oracle Reports (.rdf o .xml): resuelve los marcadores con su Modelo de Datos.",
+    )
     new.add_argument("--json", action="store_true", help="Imprime diagnósticos como JSON.")
     new.add_argument("--debug", action="store_true", help="Muestra traceback ante un fallo interno.")
+
+    temporary = commands.add_parser(
+        "temporales", help="Lista los archivos temporales de la herramienta (rwconverter, .bak, compilaciones)."
+    )
+    temporary.add_argument("--projects-dir", type=Path, help="Carpeta de proyectos (por defecto proyectos/ del compilador).")
+    temporary.add_argument("--borrar", action="store_true", help="Borra todo lo listado.")
+    temporary.add_argument("--debug", action="store_true", help="Muestra traceback ante un fallo interno.")
     return parser
+
+
+def _temporary(arguments: argparse.Namespace) -> int:
+    items = temporary_files(arguments.projects_dir)
+    if not items:
+        print("No hay archivos temporales.")
+        return 0
+    for item in items:
+        print(f"{item.path}\n    {item.kind}, {format_size(item.size)}")
+    print(f"Total: {len(items)} ({format_size(sum(item.size for item in items))}).")
+    if not arguments.borrar:
+        print("Use --borrar para eliminarlos.")
+        return 0
+    errors = remove_temporary(items)
+    for error in errors:
+        print(f"No se pudo borrar {error}", file=sys.stderr)
+    print("Borrados." if not errors else "Algunos no se pudieron borrar.")
+    return 3 if errors else 0
 
 
 def _print_human(result: CompilationResult, *, command: str) -> None:
@@ -119,6 +156,7 @@ def _new_project(arguments: argparse.Namespace) -> int:
         projects_root=arguments.projects_dir,
         page=page,
         replace=arguments.replace,
+        reports=arguments.reports,
     )
     if arguments.json:
         payload = result.diagnostics.to_dict()
@@ -159,6 +197,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if arguments.command == "new":
             return _new_project(arguments)
+        if arguments.command == "temporales":
+            return _temporary(arguments)
         if arguments.command == "validate":
             result = validate_project(arguments.project, strict=arguments.strict)
         else:

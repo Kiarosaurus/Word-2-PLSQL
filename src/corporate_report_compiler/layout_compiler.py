@@ -15,6 +15,10 @@ Archivo de proyecto ``<nombre>.report.json`` con ``schema`` igual a
       "constants": {"SISTEMA": "ACADEMIA DEMO"}
     }
 
+Si el reporte viene de Oracle Reports, ``reports_model`` apunta al XML de su
+Modelo de Datos y ``reports_code`` (opcional) a una carpeta con funciones de
+Reports corregidas a mano (``<función>.sql``), que reemplazan a las del XML.
+
 Cada consulta es un archivo .sql propio (como una Query del Data Model de
 Oracle Reports) y usa los parámetros como binds (``:P_COD_ALUMNO``).
 """
@@ -32,6 +36,8 @@ from . import __version__
 from .diagnostics import Diagnostics
 from .emitter import COMPILER_NAME, canonical_json, oracle_expression, write_text
 from .layout_reader import LayoutTemplate, read_layout_template
+from .reports_convert import ReportsPlan, plan_conversion
+from .reports_model import load_reports_model, reports_xml
 from .project import (
     ITEM_PATTERN,
     RESERVED_BIND_NAMES,
@@ -45,7 +51,8 @@ from .project import (
 LAYOUT_SCHEMA = "corporate-layout-project/1.0"
 IDENT = re.compile(r"^[A-Z][A-Z0-9_$#]{0,29}$")
 PARAMETER_TYPES = {"VARCHAR2", "NUMBER", "DATE"}
-ALLOWED_KEYS = {"schema", "report_id", "template", "title", "file_name", "package", "parameters", "queries", "constants"}
+ALLOWED_KEYS = {"schema", "report_id", "template", "title", "file_name", "package", "parameters", "queries", "constants",
+                "reports_model", "reports_code"}
 LAYOUT_ARTIFACTS = ("layout.json", "validation.json", "apex_process.sql")
 
 
@@ -60,6 +67,7 @@ class LayoutProject:
     parameters: list[dict[str, Any]]
     queries: dict[str, dict[str, Any]]           # nombre -> {file, path, sql, binds}
     constants: dict[str, str] = field(default_factory=dict)
+    reports: ReportsPlan | None = None           # código convertido de Oracle Reports
 
     @property
     def package_file(self) -> str:
@@ -94,6 +102,19 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
     report_id = _ident(raw.get("report_id"), "report_id", diagnostics, "LAYOUT-PROJECT-003")
     template_path = _safe_relative_file(path.parent, raw.get("template"), label="la plantilla",
                                         diagnostics=diagnostics, root=root)
+    model = None
+    if raw.get("reports_model"):
+        # Modelo de Datos de Oracle Reports (XML de rwconverter): resuelve {{COLUMN:F_115}} etc.
+        model_path = _safe_relative_file(path.parent, raw.get("reports_model"), label="el modelo de Reports",
+                                         diagnostics=diagnostics, root=root)
+        xml_path = reports_xml(model_path, diagnostics) if model_path is not None else None
+        model = load_reports_model(xml_path, diagnostics) if xml_path is not None else None
+    if model is not None and raw.get("reports_code"):
+        # Funciones de Reports corregidas a mano: reemplazan a las del .rdf.
+        code_dir = (path.parent / str(raw["reports_code"])).resolve()
+        if code_dir.is_dir():
+            for unit in sorted(code_dir.glob("*.sql")):
+                model.program_units[unit.stem.lower()] = unit.read_text(encoding="utf-8-sig")
     title = raw.get("title")
     if not isinstance(title, str) or not title.strip() or len(title.encode("utf-8")) > 255:
         diagnostics.error("LAYOUT-PROJECT-004", "'title' es obligatorio y admite hasta 255 bytes UTF-8.")
@@ -148,13 +169,24 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
             (diagnostics.error if item.severity == "ERROR" else diagnostics.warning)(
                 item.code, item.message, location=location)
         for bind in binds:
+            if model is not None and bind not in model.parameters and bind in model.columns \
+                    and model.columns[bind].query != name:
+                continue                  # :COLUMNA de otro grupo de Reports: la toma el motor de la fila padre
             if bind not in parameter_names:
+                origin = model.columns.get(bind) if model is not None else None
                 diagnostics.error(
                     "LAYOUT-PROJECT-022",
                     f"La consulta {name} usa :{bind}, que no está declarado en 'parameters'.",
                     location=str(file),
+                    suggestion=(f"En Reports, :{bind} es la columna {origin.name} de la consulta {origin.query} "
+                                "(un Data Link o una referencia a otro grupo). Reemplácela por un parámetro "
+                                "o únala con un JOIN en esta consulta.") if origin else None,
                 )
         queries[name] = {"file": str(file), "path": query_path, "sql": sql, "binds": list(binds)}
+        if model is not None and name in model.queries:
+            # Reports nombra columnas que el SQL no nombra igual (NRO_SOL1, expresiones sin alias):
+            # el motor usa estos nombres por posición; las columnas agregadas al final conservan su alias.
+            queries[name]["columns"] = model.queries[name]["columns"]
 
     constants: dict[str, str] = {}
     raw_constants = raw.get("constants") or {}
@@ -169,18 +201,23 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
             constants[name] = str(value)
 
     template = None
+    reports_plan = None
     if template_path is not None:
         # Diagnóstico propio: los errores del proyecto no deben ocultar los de la plantilla.
         template_diagnostics = Diagnostics(strict=diagnostics.strict)
-        template = read_layout_template(template_path, template_diagnostics)
+        template = read_layout_template(template_path, template_diagnostics, model)
         for item in template_diagnostics.items:
             (diagnostics.error if item.severity == "ERROR" else diagnostics.warning)(
                 item.code, item.message, location=item.location)
+    if template is not None and model is not None:
+        reports_plan = plan_conversion(model, {c for columns in template.queries.values() for c in columns})
+        _check_reports_plan(reports_plan, template, queries, parameter_names | set(constants), diagnostics)
     if template is not None:
+        needed = reports_plan.queries if reports_plan is not None else set()
         for query in sorted(template.queries):
             if query not in queries:
                 diagnostics.error("LAYOUT-PROJECT-040", f"La plantilla usa la consulta {query}, que no está en 'queries'.")
-        for query in sorted(set(queries) - set(template.queries)):
+        for query in sorted(set(queries) - set(template.queries) - needed):
             diagnostics.warning("LAYOUT-PROJECT-041", f"La consulta {query} no se usa en la plantilla.")
         for name in sorted(template.fields - parameter_names - set(constants)):
             diagnostics.error(
@@ -189,7 +226,40 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
             )
     if diagnostics.has_errors or report_id is None or template_path is None or package is None:
         return None, template
-    return LayoutProject(path, report_id, template_path, title, file_name, package, parameters, queries, constants), template
+    return LayoutProject(path, report_id, template_path, title, file_name, package, parameters, queries, constants,
+                         reports_plan), template
+
+
+def _check_reports_plan(plan: ReportsPlan, template: LayoutTemplate, queries: dict[str, Any], known: set[str],
+                        diagnostics: Diagnostics) -> None:
+    """Lo que el código de Oracle Reports necesita y aún falta (lo que la GUI muestra como pendiente)."""
+
+    for item in plan.pending:
+        diagnostics.warning("LAYOUT-REPORTS-011", item)
+    for query in sorted(plan.queries - set(queries) - set(template.queries)):
+        diagnostics.error(
+            "LAYOUT-REPORTS-012",
+            f"Las fórmulas, totales o Data Links usan la consulta {query}, que no está en 'queries'.",
+            suggestion=f"Agréguela con su SQL de Reports: \"{query}\": \"q_{query.lower()}.sql\" "
+                       "(al volver a cargar el Word con el .rdf se crea sola).",
+        )
+    for name in sorted(plan.parameters - known):
+        diagnostics.error(
+            "LAYOUT-REPORTS-013",
+            f"El código de Reports usa el parámetro :{name}, que no está en 'parameters' ni en 'constants'.",
+            suggestion="Declárelo en 'parameters' con su Page Item, o como constante si es fijo.",
+        )
+    if plan.externals:
+        diagnostics.warning(
+            "LAYOUT-REPORTS-014",
+            "Las fórmulas llaman a funciones de la base de datos: " + ", ".join(sorted(plan.externals))
+            + ". Deben existir en el parsing schema de APEX (o tener sinónimo y permiso EXECUTE).",
+        )
+    reserved = {"build", "layout", *(f"q_{query.lower()}" for query in queries)}
+    for unit in plan.units:
+        if unit.name in reserved:
+            diagnostics.error("LAYOUT-REPORTS-015",
+                              f"La función de Reports {unit.name} choca con un nombre del package generado.")
 
 
 # ------------------------------------------------------------------ emisión
@@ -201,10 +271,36 @@ def build_layout_definition(project: LayoutProject, template: LayoutTemplate) ->
         "report": {"id": project.report_id, "title": project.title, "file_name": project.file_name,
                    "package": project.package},
         "parameters": project.parameters,
-        "queries": {name: {"file": q["file"], "sql": q["sql"], "binds": q["binds"]}
+        "queries": {name: {"file": q["file"], "sql": q["sql"], "binds": q["binds"],
+                           **({"columns": q["columns"]} if q.get("columns") else {}),
+                           **_reports_query_entries(project.reports, name)}
                     for name, q in sorted(project.queries.items())},
         "constants": project.constants,
+        **({"reports": _reports_definition(project.reports, project.package)}
+           if project.reports is not None and not project.reports.empty else {}),
         "layout": template.layout,
+    }
+
+
+def _reports_query_entries(plan: ReportsPlan | None, query: str) -> dict[str, Any]:
+    if plan is None:
+        return {}
+    entries: dict[str, Any] = {}
+    if plan.query_formulas.get(query):
+        entries["formulas"] = plan.query_formulas[query]
+    if plan.filters.get(query):
+        entries["filters"] = plan.filters[query]
+    if plan.query_refs.get(query):
+        entries["refs"] = plan.query_refs[query]
+    return entries
+
+
+def _reports_definition(plan: ReportsPlan, package: str) -> dict[str, Any]:
+    return {
+        "model": plan.engine_model(package),
+        "units": [{"name": unit.name, "spec": unit.spec, "body": unit.body} for unit in plan.units],
+        "pending": plan.pending,
+        "externals": sorted(plan.externals),
     }
 
 
@@ -226,6 +322,8 @@ def build_package(definition: dict[str, Any]) -> str:
         f"        {_param_name(p['name'])} IN {p['type']}" for p in parameters
     )
     signature = (signature + ",\n" if signature else "") + "        p_app_user IN VARCHAR2 DEFAULT USER"
+    reports = definition.get("reports")
+    units = reports["units"] if reports else []
     lines = [
         f"-- Generado por {COMPILER_NAME} {__version__} desde {definition['source']['file_name']}.",
         "-- No lo edite a mano: cambie la plantilla Word, las consultas o el proyecto y recompile.",
@@ -233,12 +331,19 @@ def build_package(definition: dict[str, Any]) -> str:
         "    FUNCTION build(",
         signature,
         "    ) RETURN BLOB;",
+        *(["",
+           "    -- Fórmulas y funciones convertidas de Oracle Reports. Las llama RPT_LAYOUT al dibujar;",
+           "    -- son públicas solo para eso."] if units else []),
+        *(f"    {unit['spec']}" for unit in units),
         f"END {package};",
         "/",
         "",
         f"CREATE OR REPLACE PACKAGE BODY {package} AS",
         "",
     ]
+    for unit in units:
+        lines += ["    -- Convertida de Oracle Reports (las referencias :NOMBRE se leen con rpt_layout).",
+                  *(("    " + line).rstrip() for line in unit["body"].splitlines()), ""]
     for name, query in definition["queries"].items():
         lines += [
             f"    -- Consulta {name} ({query['file']})",
@@ -262,6 +367,8 @@ def build_package(definition: dict[str, Any]) -> str:
         "        l_values  JSON_OBJECT_T := JSON_OBJECT_T();",
         "        l_query   JSON_OBJECT_T;",
         "        l_binds   JSON_ARRAY_T;",
+        *(["        l_names   JSON_ARRAY_T;"]
+          if any(q.get("columns") for q in definition["queries"].values()) else []),
         "    BEGIN",
     ]
     for p in parameters:
@@ -278,6 +385,18 @@ def build_package(definition: dict[str, Any]) -> str:
             "        l_binds := JSON_ARRAY_T();",
             *[f"        l_binds.append('{bind}');" for bind in query["binds"]],
             "        l_query.put('binds', l_binds);",
+            *([
+                "        l_names := JSON_ARRAY_T();",
+                *[(f"        l_names.append('{column}');" if column else "        l_names.append_null;")
+                  for column in query["columns"]],
+                "        l_query.put('columns', l_names);",
+            ] if query.get("columns") else []),
+            *([f"        l_query.put('formulas', JSON_ARRAY_T.parse({_literal(compact_json(query['formulas']))}));"]
+              if query.get("formulas") else []),
+            *([f"        l_query.put('filters', JSON_ARRAY_T.parse({_literal(compact_json(query['filters']))}));"]
+              if query.get("filters") else []),
+            *([f"        l_query.put('refs', JSON_ARRAY_T.parse({_literal(compact_json(query['refs']))}));"]
+              if query.get("refs") else []),
             f"        l_queries.put('{name}', l_query);",
         ]
     lines.append(f"        l_values.put('REPORT_TITLE', {_literal(report['title'])});")
@@ -294,7 +413,8 @@ def build_package(definition: dict[str, Any]) -> str:
         "            p_layout  => layout,",
         "            p_queries => l_queries.to_clob,",
         "            p_values  => l_values.to_clob,",
-        "            p_binds   => rpt_layout.t_binds(" + (f"\n                {bind_list}\n            " if binds else "") + ")",
+        "            p_binds   => rpt_layout.t_binds(" + (f"\n                {bind_list}\n            " if binds else "") + ")"
+        + (",\n            p_model   => " + oracle_expression(compact_json(reports["model"]), clob=True) if reports else ""),
         "        );",
         "    END build;",
         "",
@@ -392,8 +512,10 @@ def build_layout_guide(result: Any) -> str:
     if not result.valid or definition is None:
         return ""
     report = definition["report"]
-    package_path = next((p for p in result.artifacts if p.name == f"{report['package'].lower()}.sql"), None)
-    process_path = next((p for p in result.artifacts if p.name == "apex_process.sql"), None)
+    from .apex_guide import expected_artifact
+
+    package_path = expected_artifact(result, f"{report['package'].lower()}.sql")
+    process_path = expected_artifact(result, "apex_process.sql")
     lines = [
         "QUÉ SUBIR A APEX Y DÓNDE (MODO LAYOUT)",
         "=" * 38,

@@ -21,6 +21,7 @@ import re
 from typing import Any
 
 from docx import Document
+from docx.enum.text import WD_UNDERLINE
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
@@ -47,6 +48,10 @@ MARKER_PATTERN = re.compile(
     rf"^(?P<kind>PAGE|PAGES|REPORT_TITLE|APP_USER|GENERATED_AT|FIELD|COLUMN|SUM)"
     rf"(?::(?P<name>{IDENT}(?:\.{IDENT})?))?(?:\|(?P<mask>[^{{}}|]{{1,60}}))?$"
 )
+UNQUALIFIED_PATTERN = re.compile(
+    r"^\s*(?P<kind>FIELD|COLUMN|SUM)\s*:\s*(?P<name>[^|.\s][^|.]*?)\s*(?:\|(?P<mask>[^{}|]{1,60}))?$",
+    re.IGNORECASE,
+)
 FONT_STYLE = {(False, False): 1, (True, False): 2, (False, True): 3, (True, True): 4}
 
 
@@ -58,6 +63,7 @@ class LayoutTemplate:
     queries: dict[str, set[str]] = field(default_factory=dict)   # consulta -> columnas usadas
     fields: set[str] = field(default_factory=set)                # {{FIELD:NOMBRE}} sin consulta
     data_tables: list[str] = field(default_factory=list)
+    pending: list[str] = field(default_factory=list)             # trabajo manual detectado con Reports
 
 
 def is_layout_docx(path: Path) -> bool:
@@ -83,14 +89,49 @@ def is_layout_docx(path: Path) -> bool:
 
 
 class _Reader:
-    def __init__(self, document: Any, diagnostics: Diagnostics, template: LayoutTemplate) -> None:
+    def __init__(self, document: Any, diagnostics: Diagnostics, template: LayoutTemplate, model: Any = None) -> None:
         self.document = document
         self.diagnostics = diagnostics
         self.template = template
+        self.model = model          # ReportsModel opcional: resuelve nombres de Oracle Reports
         normal = document.styles["Normal"].font
         self.default_size = float(normal.size.pt) if normal.size is not None else 11.0
 
     # ------------------------------------------------------------- marcadores
+    def resolve_text(self, text: str, location: str) -> str:
+        """Con el Modelo de Datos de Reports, completa la consulta de los marcadores.
+
+        {{COLUMN:F_115}} o {{COLUMN:INTERES2}} -> {{COLUMN:AMORTIZACIONES.INTERES2|99,999.00}}
+        """
+
+        if self.model is None or "{{" not in text:
+            return text
+
+        def replace(match: re.Match) -> str:
+            unqualified = UNQUALIFIED_PATTERN.match(match.group(1))
+            if unqualified is None:
+                return match.group(0)
+            kind = unqualified.group("kind").upper()
+            name = unqualified.group("name").strip()
+            resolution = self.model.resolve(kind, name)
+            if resolution is None:
+                if kind != "FIELD":
+                    suggestions = self.model.suggestions(name)
+                    self.diagnostics.error(
+                        "LAYOUT-TOKEN-009",
+                        f"{match.group(0)}: {name} no existe en el Modelo de Datos de Reports.",
+                        location=location,
+                        suggestion=("¿Quiso decir " + ", ".join(suggestions) + "?") if suggestions else None,
+                    )
+                return match.group(0)
+            if resolution.pending and resolution.pending not in self.template.pending:
+                self.template.pending.append(resolution.pending)
+                self.diagnostics.warning("LAYOUT-REPORTS-010", resolution.pending, location=location)
+            mask = unqualified.group("mask") or resolution.mask
+            return "{{" + f"{kind}:{resolution.marker}" + (f"|{mask}" if mask else "") + "}}"
+
+        return TOKEN_PATTERN.sub(replace, text)
+
     def check_markers(self, text: str, *, zone: str, location: str, query: str | None = None) -> None:
         """zone: page (encabezado/pie), body, cell, data-header, data-body, data-footer."""
 
@@ -125,12 +166,13 @@ class _Reader:
                         location=location,
                     )
                     continue
-                expected = "data-body" if kind == "COLUMN" else "data-footer"
-                if zone != expected:
-                    where = "la fila que se repite" if kind == "COLUMN" else "las filas de totales"
+                expected = {"data-body", "data-group"} if kind == "COLUMN" else {"data-footer", "data-header", "data-group"}
+                if zone not in expected:
+                    where = ("la fila que se repite o en una fila de grupo de una tabla de datos" if kind == "COLUMN"
+                             else "las filas que no se repiten de una tabla de datos")
                     self.diagnostics.error(
                         "LAYOUT-TOKEN-005",
-                        f"{match.group(0)} solo se admite en {where} de una tabla de datos.",
+                        f"{match.group(0)} solo se admite en {where}.",
                         location=location,
                     )
                     continue
@@ -162,19 +204,26 @@ class _Reader:
             self.diagnostics.warning(
                 "LAYOUT-STYLE-001", f"Fuente no reconocida {family}; se imprime como Helvetica.", location=location
             )
-        if run.underline or run.font.strike:
-            self.diagnostics.warning(
-                "LAYOUT-STYLE-002", "Subrayado y tachado no se imprimen.", location=location
-            )
+        underline = run.underline
+        if underline is None and paragraph.style is not None:
+            underline = paragraph.style.font.underline
+        strike = run.font.strike
+        if strike is None and paragraph.style is not None:
+            strike = paragraph.style.font.strike
         italic = run.italic
         if italic is None and paragraph.style is not None:
             italic = paragraph.style.font.italic
         bold = _effective_bold(run, paragraph, False)
-        return {
+        style = {
             "f": FONT_STYLE[(bool(bold), bool(italic))],
             "s": _effective_size(run, paragraph, self.default_size),
             "c": _effective_color(run, "#000000").lstrip("#"),
         }
+        if underline not in (None, False, WD_UNDERLINE.NONE):
+            style["u"] = 1                      # subrayado (cualquier tipo se imprime como línea simple)
+        if strike:
+            style["x"] = 1                      # tachado
+        return style
 
     def paragraph(self, element: Any, parent: Any, *, zone: str, location: str, query: str | None = None) -> dict[str, Any]:
         paragraph = Paragraph(element, parent)
@@ -188,12 +237,17 @@ class _Reader:
                 if not piece:
                     continue
                 line = lines[-1]
-                if line and all(line[-1][key] == style[key] for key in ("f", "s", "c")):
+                if line and all(line[-1].get(key) == style.get(key) for key in ("f", "s", "c", "u", "x")):
                     line[-1]["t"] += piece
                 else:
                     line.append({"t": piece, **style})
         for line in lines:
             for run in line:
+                run["t"] = self.resolve_text(run["t"], location)
+                if zone == "data-group" and query:
+                    # Fila de grupo: sus datos cambian con cada grupo, como una columna.
+                    run["t"] = re.sub(r"\{\{\s*FIELD\s*:\s*" + re.escape(query) + r"\.", "{{COLUMN:" + query + ".",
+                                      run["t"], flags=re.IGNORECASE)
                 if run["t"].count("{{") != run["t"].count("}}"):
                     self.diagnostics.error(
                         "LAYOUT-TOKEN-007",
@@ -291,29 +345,18 @@ class _Reader:
             return None
         text = "".join(t.text or "" for t in tbl.iter(qn("w:t")))
         is_data = "{{COLUMN:" in re.sub(r"\s", "", text).upper()
-        body_index = None
-        query = None
-        if is_data:
-            for index, row in enumerate(rows_xml):
-                row_text = re.sub(r"\s", "", "".join(t.text or "" for t in row.iter(qn("w:t")))).upper()
-                if "{{COLUMN:" in row_text:
-                    if body_index is not None:
-                        self.diagnostics.error(
-                            "LAYOUT-TABLE-002",
-                            "Una tabla de datos debe tener una sola fila con {{COLUMN:...}}.",
-                            location=location,
-                        )
-                        return None
-                    body_index = index
-                    found = re.search(r"\{\{COLUMN:(" + IDENT + r")\.", row_text)
-                    query = found.group(1) if found else None
+        plan = self._data_sections(rows_xml, location) if is_data else None
+        if is_data and plan is None:
+            return None
 
         rows: list[dict[str, Any]] = []
         last_row = len(rows_xml) - 1
         for row_index, row in enumerate(rows_xml):
             row_location = f"{location}, fila {row_index + 1}"
+            query = None
             if is_data:
-                row_zone = "data-header" if row_index < body_index else "data-body" if row_index == body_index else "data-footer"
+                section, row_zone = plan["rows"][row_index]
+                query = plan["queries"][section]
             else:
                 row_zone = zone
             tr_props = row.find(qn("w:trPr"))
@@ -380,17 +423,122 @@ class _Reader:
                 "LAYOUT-TABLE-006", "Las tablas de datos no se admiten en el encabezado o el pie.", location=location
             )
             return None
-        sums = sorted({
-            match.group(2)
-            for row in rows[body_index + 1:]
-            for cell in row["cs"]
-            for para in cell["ps"]
-            for line in para["ln"]
-            for run in line
-            for match in re.finditer(r"\{\{\s*SUM\s*:\s*(" + IDENT + r")\.(" + IDENT + r")", run["t"].upper())
-        })
-        self.template.data_tables.append(query)
-        return {"k": "D", "q": query, **block, "hd": rows[:body_index], "bd": rows[body_index], "ft": rows[body_index + 1:], "sm": sums}
+
+        def sums_in(selected: list[dict[str, Any]]) -> set[str]:
+            return {
+                match.group(2)
+                for row in selected
+                for cell in row["cs"]
+                for para in cell["ps"]
+                for line in para["ln"]
+                for run in line
+                for match in re.finditer(r"\{\{\s*SUM\s*:\s*(" + IDENT + r")\.(" + IDENT + r")", run["t"].upper())
+            }
+
+        # Una tabla de Word puede tener varias secciones de datos (una por consulta), una
+        # debajo de otra, como los marcos de Oracle Reports: cada una se dibuja como tabla propia.
+        blocks = []
+        for section, query in enumerate(plan["queries"]):
+            indexes = [i for i, (owner, _zone) in enumerate(plan["rows"]) if owner == section]
+            header = [rows[i] for i in indexes if plan["rows"][i][1] in {"data-header", "data-group"}]
+            for i in indexes:
+                if plan["rows"][i][1] == "data-group":
+                    rows[i]["g"] = plan["groups"][i]
+            body = next(rows[i] for i in indexes if plan["rows"][i][1] == "data-body")
+            footer = [rows[i] for i in indexes if plan["rows"][i][1] == "data-footer"]
+            data = {"k": "D", "q": query, **block, "hd": header, "bd": body, "ft": footer,
+                    "sm": sorted(sums_in(header + footer))}
+            if sums_in([rows[i] for i in indexes if plan["rows"][i][1] == "data-header"]):
+                data["hs"] = True              # totales arriba de las filas: se calculan antes de dibujarlas
+            if self.model is not None:
+                data["he"] = True              # como un marco de Reports: sin filas, la sección no se imprime
+            self.template.data_tables.append(query)
+            blocks.append(data)
+        return blocks
+
+    def _marker_refs(self, text: str) -> list[tuple[str, str | None, str | None]]:
+        """(tipo, consulta, columna) de cada marcador FIELD/COLUMN/SUM del texto, ya resuelto con Reports."""
+
+        refs = []
+        for match in TOKEN_PATTERN.finditer(text):
+            parsed = re.match(r"^\s*(FIELD|COLUMN|SUM)\s*:\s*([^|]+?)\s*(?:\|.*)?$", match.group(1), re.IGNORECASE | re.DOTALL)
+            if parsed is None:
+                continue
+            kind, name = parsed.group(1).upper(), parsed.group(2).strip()
+            if "." in name:
+                query, column = name.upper().split(".", 1)
+            elif self.model is not None and (resolution := self.model.resolve(kind, name)) and "." in resolution.marker:
+                query, column = resolution.marker.split(".", 1)
+            else:
+                query = column = None
+            refs.append((kind, query, column))
+        return refs
+
+    def _data_sections(self, rows_xml: list[Any], location: str) -> dict[str, Any] | None:
+        """Reparte las filas de una tabla de datos en secciones (una por fila {{COLUMN:...}}).
+
+        Cada fila que no se repite va con la sección cuya consulta usa; si no usa ninguna,
+        con la sección siguiente (título o encabezados) o, al final, con la última (totales).
+        Dentro de una sección, las filas de encabezado que muestran datos de su consulta son
+        filas de grupo: se repiten cada vez que cambian esos datos (grupos de Reports).
+        """
+
+        refs = [self._marker_refs("".join(t.text or "" for t in row.iter(qn("w:t")))) for row in rows_xml]
+        bodies: list[int] = []
+        queries: list[str | None] = []
+        for index, row in enumerate(rows_xml):
+            row_text = re.sub(r"\s", "", "".join(t.text or "" for t in row.iter(qn("w:t")))).upper()
+            if "{{COLUMN:" not in row_text:
+                continue
+            # Consulta de la sección: la de su primer {{COLUMN:}} conocido. Si la fila mezcla
+            # consultas, la revisión de marcadores lo informa (LAYOUT-TOKEN-006).
+            bodies.append(index)
+            queries.append(next((query for kind, query, _c in refs[index] if kind == "COLUMN" and query), None))
+        assignment: list[tuple[int, str]] = []
+        for index, row_refs in enumerate(refs):
+            if index in bodies:
+                assignment.append((bodies.index(index), "data-body"))
+                continue
+            following = next((k for k, body in enumerate(bodies) if body > index), None)
+            previous = following - 1 if following is not None else len(bodies) - 1
+            used = {query for _kind, query, _column in row_refs}
+            if following is None:
+                section = previous
+            elif previous >= 0 and queries[previous] in used and queries[following] not in used:
+                section = previous
+            else:
+                section = following
+            assignment.append((section, "data-header" if index < bodies[section] else "data-footer"))
+        for index in range(1, len(assignment)):
+            if assignment[index][0] < assignment[index - 1][0]:
+                self.diagnostics.error(
+                    "LAYOUT-TABLE-002",
+                    "Las filas de cada consulta deben ir juntas: totales debajo de su fila {{COLUMN:...}} "
+                    "y títulos o encabezados de la siguiente después.",
+                    location=f"{location}, fila {index + 1}",
+                )
+                return None
+        groups: dict[int, list[str]] = {}
+        for section, query in enumerate(queries):
+            keys: list[str] = []
+            header = [i for i, (owner, zone) in enumerate(assignment) if owner == section and zone == "data-header"]
+            seen_group = False
+            for index in header:
+                own = [column for kind, q, column in refs[index] if kind in {"FIELD", "COLUMN"} and q == query and column]
+                if own:
+                    seen_group = True
+                    keys += [column for column in own if column not in keys]
+                    assignment[index] = (section, "data-group")
+                    groups[index] = list(keys)
+                elif seen_group:
+                    self.diagnostics.error(
+                        "LAYOUT-TABLE-007",
+                        "Las filas de grupo (con datos de la consulta de la tabla) deben ir justo antes de la fila "
+                        "que se repite.",
+                        location=f"{location}, fila {index + 1}",
+                    )
+                    return None
+        return {"queries": queries, "rows": assignment, "groups": groups}
 
     # ------------------------------------------------------------- zonas
     def blocks(self, container: Any, parent: Any, *, zone: str, content_width: float, label: str) -> list[dict[str, Any]]:
@@ -402,7 +550,9 @@ class _Reader:
             elif child.tag == qn("w:tbl"):
                 tables += 1
                 block = self.table(child, parent, zone=zone, content_width=content_width, location=f"{label}, tabla {tables}")
-                if block is not None:
+                if isinstance(block, list):
+                    result.extend(block)
+                elif block is not None:
                     result.append(block)
             elif child.tag == qn("w:sectPr") or child.tag in MARKERS:
                 continue
@@ -418,7 +568,7 @@ class _Reader:
         return result
 
 
-def read_layout_template(path: Path, diagnostics: Diagnostics) -> LayoutTemplate | None:
+def read_layout_template(path: Path, diagnostics: Diagnostics, model: Any = None) -> LayoutTemplate | None:
     if inspect_docx_zip(path, diagnostics) is None:
         return None
     try:
@@ -451,7 +601,7 @@ def read_layout_template(path: Path, diagnostics: Diagnostics) -> LayoutTemplate
     }
     content_width = width - page["ml"] - page["mr"]
     template = LayoutTemplate(path, sha256(path.read_bytes()).hexdigest(), {})
-    reader = _Reader(document, diagnostics, template)
+    reader = _Reader(document, diagnostics, template, model)
     header = [] if section.header.is_linked_to_previous else reader.blocks(
         section.header._element, section.header, zone="page", content_width=content_width, label="Encabezado")
     footer = [] if section.footer.is_linked_to_previous else reader.blocks(

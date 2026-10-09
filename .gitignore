@@ -22,8 +22,17 @@ dist/
 .eggs/
 wheels/
 
+# proyectos/: only the demo is versioned; projects created from a DOCX stay local
+/proyectos/*
+!/proyectos/demo/
+
 # Backups left by re-importing a DOCX into proyectos/<nombre>/
 proyectos/**/*.bak
+
+# Staging/backup folders the compiler leaves next to the output if it is interrupted
+.report-compiler-backup-*/
+.generado-*/
+.compiled-*/
 
 # Legacy local compiler output
 examples/

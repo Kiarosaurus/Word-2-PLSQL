@@ -33,7 +33,7 @@ Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}   <- pie de página de Word
 ## Dos modos
 
 - **Modo simple** (`corporate-report-project/1.0`): un título, una tabla y un pie, impresos con `APEX_DATA_EXPORT`. También genera XLSX, que lleva solo la fila de títulos y los datos (sin título, usuario, fecha ni pie), listo para filtrar y analizar.
-- **Modo layout** (`corporate-layout-project/1.0`): varias tablas, cuadrículas con bordes visibles, blancos o sin borde, totales y número de página, impresos por el motor PDF en PL/SQL (`sql/modo_layout`). Una consulta por archivo, como el Data Model de Oracle Reports. Ejemplo ficticio: `proyectos/demo/estado_cuenta`. Ver Manual de uso, sección 13.
+- **Modo layout** (`corporate-layout-project/1.0`): varias tablas, cuadrículas con bordes visibles, blancos o sin borde, totales y número de página, impresos por el motor PDF en PL/SQL (`sql/modo_layout`). Una consulta por archivo, como el Data Model de Oracle Reports. Ejemplo ficticio: `proyectos/demo/estado_cuenta`. Con el `.rdf` del reporte original importa sus consultas y convierte fórmulas, marcadores de posición, totales y Data Links; la GUI lista lo que falte a mano. Ver Manual de uso, sección 13.
 
 ## Flujo de trabajo
 
