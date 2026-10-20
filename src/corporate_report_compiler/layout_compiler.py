@@ -547,6 +547,8 @@ def build_layout_guide(result: Any) -> str:
         "4. Botón Descargar (Action: Submit Page) y en la página Reload on Submit: Always.",
         "5. Proceso en Processing (Execute Code, PL/SQL), When Button Pressed = el botón:",
         f"   pegue {process_path or 'apex_process.sql'}",
+        "   Si hay varios reportes en la página, cree un proceso por reporte y",
+        "   seleccione en cada proceso solo su botón en When Button Pressed.",
         "",
         "Solo informativo — consultas del reporte (generado/q_*.sql):",
         "   Ya van dentro del package del paso 2: no se pegan en APEX ni se ejecutan aparte.",

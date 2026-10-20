@@ -552,6 +552,7 @@ STATIC:PDF;PDF,Excel;XLSX
 3. Cree un proceso en *Processing*: *Type: Execute Code*, *Language: PL/SQL*.
 4. En *PL/SQL Code* pegue el contenido completo de `apex_process.sql` (el bloque `declare … end;`), sin editarlo.
 5. En *Server-side Condition* elija *When Button Pressed* = el botón de descarga.
+   Si la página tiene varios botones de descarga, cree un proceso por reporte y seleccione en cada proceso únicamente su botón en *When Button Pressed*. Así, al enviar la página, se genera solo el reporte solicitado.
 6. Asigne al botón y al proceso el mismo *Authorization Scheme* que protege la página.
 7. Al enviar la página, los filtros pasan al estado de sesión antes del proceso; la descarga detiene el procesamiento de APEX, por lo que no se ejecutan branches posteriores.
 8. Pruebe con un usuario real autorizado y con otro no autorizado.
@@ -630,7 +631,7 @@ Diagnóstico | Revisar APEX Debug | el mensaje del package indica el bind, colum
 | TOKEN-005 | {{FIELD:APP_USER}} u otro nombre reservado | Escribir {{APP_USER}} sin FIELD: |
 | TOKEN-006 / LAYOUT-TOKEN-008 | Marcador sin completar ({{FIELD:}}, {{COLUMN:}}, {{SUM:}}), típico de una plantilla generada con la IA | Escribir el nombre: ALIAS o NOMBRE en modo simple, CONSULTA.COLUMNA en modo layout |
 | LAYOUT-TOKEN-009 | Un nombre de {{COLUMN:}} o {{SUM:}} no existe en el Modelo de Datos de Reports | Corregir el nombre; el mensaje sugiere el más parecido |
-| LAYOUT-TABLE-007 | Una fila de grupo no está justo encima de la fila que se repite | Mover la fila de grupo debajo de los títulos de columna |
+| Títulos después de una fila de grupo | La tabla puede tener el orden grupo → títulos de columna → fila de detalle | Los títulos se imprimen al comenzar cada grupo y se repiten si el detalle pasa a otra página |
 | LAYOUT-REPORTS-011 | Código de Reports que no se pudo convertir (SRW, nombres inexistentes, condición de Data Link) | Corregir el archivo que indica el mensaje y recompilar |
 | LAYOUT-REPORTS-012 | Una fórmula, total o Data Link usa una consulta que no está en 'queries' | Volver a cargar el Word con el .rdf (la crea sola) o agregarla |
 | LAYOUT-REPORTS-013 | El código de Reports usa un parámetro no declarado | Declararlo en 'parameters' o en 'constants' |
@@ -670,7 +671,7 @@ Usuario final | Descargar | el package ejecuta las consultas y dibuja el PDF
 | Tabla de datos | Una fila con {{COLUMN:CONSULTA.COLUMNA}}; las filas anteriores son cabecera y las posteriores, totales | Una fila por registro; la cabecera se repite en cada página |
 | Varias consultas en una tabla | Una fila {{COLUMN:...}} por consulta, una debajo de otra (como los marcos de Oracle Reports) | Cada sección se imprime con sus propias filas, títulos y totales |
 | Totales | {{SUM:CONSULTA.COLUMNA}} debajo de la fila que se repite, o encima (por ejemplo junto al título) | Suma de la columna en la tabla; arriba se calcula antes de dibujar las filas |
-| Fila de grupo | Fila justo encima de la que se repite, con {{FIELD:CONSULTA.COLUMNA}} de la misma consulta (y, si se quiere, {{SUM:...}}) | Se imprime cada vez que cambia ese dato, con el subtotal del grupo (grupos de ruptura de Reports) |
+| Fila de grupo | Fila anterior al detalle, con {{FIELD:CONSULTA.COLUMNA}} de la misma consulta (y, si se quiere, {{SUM:...}}); puede llevar después filas estáticas de títulos | Se imprime cada vez que cambia ese dato, seguida de sus títulos y del detalle (grupos de ruptura de Reports) |
 | Campo de una consulta | {{FIELD:CONSULTA.COLUMNA}} en cualquier párrafo o celda | Primera fila de la consulta (grupo maestro) |
 | Parámetro o constante | {{FIELD:NOMBRE}} | Valor del parámetro o de constants |
 | Número de página | {{PAGE}} y {{PAGES}}, solo en el encabezado o pie de Word | 1 DE 3 |
@@ -680,7 +681,7 @@ Usuario final | Descargar | el package ejecuta las consultas y dibuja el PDF
 
 La primera versión del Word puede generarse con el prompt `docs\PROMPT_IA_PLANTILLA.txt` a partir de capturas del reporte original. La IA deja vacíos `{{FIELD:}}`, `{{COLUMN:}}` y `{{SUM:}}`: Informática los completa en Word con CONSULTA.COLUMNA; la validación lista cada marcador pendiente con su tabla, fila y columna (LAYOUT-TOKEN-008).
 
-Se mantienen las restricciones de seguridad del modo simple (sin imágenes, macros, campos de Word ni contenido externo). No se admiten celdas combinadas en vertical ni tablas anidadas, y el texto de una celda no se parte en varias líneas automáticamente: use saltos de línea manuales. Las fuentes se imprimen como Helvetica; negrita, cursiva, subrayado y tachado sí se imprimen (cualquier tipo de subrayado sale como línea simple).
+Se mantienen las restricciones de seguridad del modo simple (sin imágenes, macros, campos de Word ni contenido externo). No se admiten celdas combinadas en vertical ni tablas anidadas. El texto se ajusta automáticamente al ancho de cada celda después de sustituir los marcadores; la fila crece para contenerlo, incluso si Word tenía una altura exacta. Las fuentes se imprimen como Helvetica; negrita, cursiva, subrayado y tachado sí se imprimen (cualquier tipo de subrayado sale como línea simple).
 
 Ejemplo comentado (extracto de `proyectos\demo\estado_cuenta\estado_cuenta.docx`, un ejemplo ficticio):
 

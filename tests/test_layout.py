@@ -107,6 +107,10 @@ class LayoutReaderTests(unittest.TestCase):
         _template, diagnostics = self.read(document)
         self.assertIn("LAYOUT-TOKEN-005", codes(diagnostics))      # COLUMN fuera de una tabla de datos
         self.assertIn("LAYOUT-TOKEN-006", codes(diagnostics))      # dos consultas en la misma tabla
+        misplaced = next(item for item in diagnostics.items if item.code == "LAYOUT-TOKEN-005")
+        self.assertIn("Se encontró", misplaced.message)
+        self.assertIn("se esperaba", misplaced.message)
+        self.assertIsNotNone(misplaced.suggestion)
 
     def test_vertical_merge_rejected(self) -> None:
         document = base_document()

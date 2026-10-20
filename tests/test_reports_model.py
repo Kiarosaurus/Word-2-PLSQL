@@ -199,7 +199,7 @@ class ReportsSectionsTests(unittest.TestCase):
         self.assertIn('"t": "CUOTAS PENDIENTES:", "f": 2, "s": 7.0, "c": "000000", "u": 1', text)
         self.assertIn("{{COLUMN:Q_CUOTAS.CS_FILA}}", text)
 
-    def test_group_rows_must_be_next_to_the_repeated_row(self) -> None:
+    def test_column_titles_can_follow_a_group_row(self) -> None:
         document = Document()
         document.sections[0].page_width, document.sections[0].page_height = Mm(210), Mm(297)
         table = tool.new_table(document, 3, [40, 40])
@@ -210,8 +210,11 @@ class ReportsSectionsTests(unittest.TestCase):
         document.save(self.root / "g.raw.docx")
         tool._sample._normalize_docx_archive(self.root / "g.raw.docx", path)
         diagnostics = Diagnostics()
-        self.assertIsNone(read_layout_template(path, diagnostics, self.model))
-        self.assertIn("LAYOUT-TABLE-007", {item.code for item in diagnostics.items})
+        template = read_layout_template(path, diagnostics, self.model)
+        self.assertIsNotNone(template, diagnostics.to_dict())
+        table = next(block for block in template.layout["body"] if block["k"] == "D")
+        self.assertEqual([row.get("g") for row in table["hd"]], [["NRO_CUOTA"], ["NRO_CUOTA"]])
+        self.assertEqual([row.get("gh") for row in table["hd"]], [None, True])
 
 
 class ReportsImportTests(unittest.TestCase):

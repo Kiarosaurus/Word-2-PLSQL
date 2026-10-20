@@ -169,6 +169,8 @@ def _process_steps(button: str, process: Path | None) -> list[str]:
         "    Source > PL/SQL Code: pegue el bloque completo (botón «Copiar código APEX») o el",
         f"    contenido de {process or 'apex_process.sql'}.",
         f"    Server-side Condition > When Button Pressed: {button}.",
+        "    Si hay varios botones de descarga en la página, cree un proceso por reporte y",
+        "    seleccione en cada proceso solo su botón en When Button Pressed.",
         "    Security > Authorization Scheme: el mismo de la página.",
         "  No agregue Branches después del proceso: la descarga termina la petición.",
     ]
@@ -459,6 +461,8 @@ def build_apex_guide(result: CompilationResult) -> str:
         "   (el bloque declare ... end; tal cual, sin editarlo a mano).",
         "   Execution > Point: Processing.",
         f"   Server-side Condition: When Button Pressed = {request}.",
+        "   Si hay varios reportes en la página, cada uno necesita su propio proceso",
+        "   condicionado con When Button Pressed = su botón de descarga.",
         "   Security > Authorization Scheme: el mismo que protege la página.",
         "",
         "6. Lo que NO se sube a APEX:",

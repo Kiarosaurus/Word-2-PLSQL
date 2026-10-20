@@ -41,6 +41,7 @@ class ApexGuideTests(unittest.TestCase):
             "VDIREC_ACTUAL",
             "NO se sube",
             "Reload on Submit: Always",
+            "cada uno necesita su propio proceso",
         ):
             self.assertIn(expected, guide)
         self.assertIn("0 (Global Page)", {row[1] for row in page_item_rows(result)})
@@ -78,6 +79,7 @@ class ApexGuideTests(unittest.TestCase):
         self.assertIn("rpt_estado_cuenta.sql", layout)
         self.assertIn("No se necesita nada en la página 0", layout)
         self.assertIn("P71_COD_ALUMNO", layout)
+        self.assertIn("cree un proceso por reporte", layout)
         self.assertIn("rpt_estado_cuenta.build(", process_code(result))
 
     def test_paste_instructions_say_where_the_copied_code_goes(self) -> None:
@@ -89,6 +91,7 @@ class ApexGuideTests(unittest.TestCase):
                          "Create Process", "When Button Pressed: DOWNLOAD_ENTIDADES", "Reload on Submit: Always"):
             self.assertIn(expected, simple)
         self.assertNotIn("RPT_LAYOUT", simple)
+        self.assertIn("cree un proceso por reporte", simple)
 
         layout_project = ROOT / "proyectos" / "demo" / "estado_cuenta" / "generado" / "estado_cuenta.report.json"
         layout_result = validate_project(layout_project)

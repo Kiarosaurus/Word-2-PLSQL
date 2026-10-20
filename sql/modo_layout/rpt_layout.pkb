@@ -662,57 +662,148 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         RETURN l_max * 1.2 * c_pt_to_mm;
     END line_height;
 
-    -- Párrafo: devuelve su altura; dibuja si p_draw.
+    -- Párrafo: ajusta el texto ya resuelto al ancho disponible antes de medirlo o dibujarlo.
     FUNCTION paragraph(
         p_para IN JSON_OBJECT_T, p_x IN NUMBER, p_y IN NUMBER, p_w IN NUMBER, p_draw IN BOOLEAN
     ) RETURN NUMBER IS
-        l_lines  JSON_ARRAY_T := p_para.get_array('ln');
-        l_line   JSON_ARRAY_T;
-        l_run    JSON_OBJECT_T;
-        l_y      NUMBER := p_y + NVL(p_para.get_number('bf'), 0);
-        l_h      NUMBER;
-        l_total  NUMBER;
-        l_x      NUMBER;
-        l_w      NUMBER;
-        TYPE t_texts IS TABLE OF VARCHAR2(32767) INDEX BY PLS_INTEGER;
-        l_texts  t_texts;
+        TYPE t_fragment IS RECORD (
+            txt VARCHAR2(32767),
+            run_index PLS_INTEGER,
+            width_mm NUMBER
+        );
+        TYPE t_fragments IS TABLE OF t_fragment INDEX BY PLS_INTEGER;
+        l_lines       JSON_ARRAY_T := p_para.get_array('ln');
+        l_line        JSON_ARRAY_T;
+        l_run         JSON_OBJECT_T;
+        l_fragments   t_fragments;
+        l_count       PLS_INTEGER := 0;
+        l_y           NUMBER := p_y + NVL(p_para.get_number('bf'), 0);
+        l_h           NUMBER;
+        l_x           NUMBER;
+        l_w           NUMBER := 0;
+        l_limit       NUMBER := GREATEST(NVL(p_w, 0), 0.1);
+        l_text        VARCHAR2(32767);
+        l_piece       VARCHAR2(32767);
+        l_pending     VARCHAR2(32767);
+        l_pending_run PLS_INTEGER;
+        l_pos         PLS_INTEGER;
+        l_end         PLS_INTEGER;
+        l_space       BOOLEAN;
+        l_gap_w       NUMBER;
+        l_piece_w     NUMBER;
+
+        FUNCTION width_of(p_run IN JSON_OBJECT_T, p_text IN VARCHAR2) RETURN NUMBER IS
+        BEGIN
+            rpt_pdf.set_font(p_run.get_number('f'), p_run.get_number('s'));
+            RETURN rpt_pdf.text_width_mm(p_text);
+        END width_of;
+
+        PROCEDURE add_piece(p_text IN VARCHAR2, p_run_index IN PLS_INTEGER, p_width IN NUMBER) IS
+        BEGIN
+            IF p_text IS NULL THEN RETURN; END IF;
+            IF l_count > 0 AND l_fragments(l_count).run_index = p_run_index THEN
+                l_fragments(l_count).txt := l_fragments(l_count).txt || p_text;
+                l_fragments(l_count).width_mm := l_fragments(l_count).width_mm + p_width;
+            ELSE
+                l_count := l_count + 1;
+                l_fragments(l_count).txt := p_text;
+                l_fragments(l_count).run_index := p_run_index;
+                l_fragments(l_count).width_mm := p_width;
+            END IF;
+            l_w := l_w + p_width;
+        END add_piece;
+
+        PROCEDURE finish_line IS
+            l_part JSON_OBJECT_T;
+            l_part_w NUMBER;
+        BEGIN
+            IF p_draw AND l_count > 0 THEN
+                l_x := CASE p_para.get_string('al')
+                    WHEN 'R' THEN p_x + p_w - l_w
+                    WHEN 'C' THEN p_x + (p_w - l_w) / 2
+                    ELSE p_x
+                END;
+                FOR j IN 1 .. l_count LOOP
+                    l_part := TREAT(l_line.get(l_fragments(j).run_index) AS JSON_OBJECT_T);
+                    rpt_pdf.set_font(l_part.get_number('f'), l_part.get_number('s'));
+                    rpt_pdf.set_text_color(NVL(l_part.get_string('c'), '000000'));
+                    rpt_pdf.text(l_x, l_y + l_h * 0.78, l_fragments(j).txt);
+                    l_part_w := l_fragments(j).width_mm;
+                    IF l_part_w > 0 AND l_part.has('u') THEN
+                        rpt_pdf.line(l_x, l_y + l_h * 0.78 + l_part.get_number('s') * 0.12 * c_pt_to_mm,
+                                     l_x + l_part_w, l_y + l_h * 0.78 + l_part.get_number('s') * 0.12 * c_pt_to_mm,
+                                     l_part.get_number('s') / 16, NVL(l_part.get_string('c'), '000000'));
+                    END IF;
+                    IF l_part_w > 0 AND l_part.has('x') THEN
+                        rpt_pdf.line(l_x, l_y + l_h * 0.78 - l_part.get_number('s') * 0.3 * c_pt_to_mm,
+                                     l_x + l_part_w, l_y + l_h * 0.78 - l_part.get_number('s') * 0.3 * c_pt_to_mm,
+                                     l_part.get_number('s') / 16, NVL(l_part.get_string('c'), '000000'));
+                    END IF;
+                    l_x := l_x + l_part_w;
+                END LOOP;
+            END IF;
+            l_y := l_y + l_h;
+            l_fragments.DELETE;
+            l_count := 0;
+            l_w := 0;
+        END finish_line;
     BEGIN
         FOR i IN 0 .. l_lines.get_size - 1 LOOP
             l_line := TREAT(l_lines.get(i) AS JSON_ARRAY_T);
             l_h := line_height(l_line, p_para.get_number('es'));
-            IF p_draw AND l_line.get_size > 0 THEN
-                l_total := 0;
-                FOR j IN 0 .. l_line.get_size - 1 LOOP
-                    l_run := TREAT(l_line.get(j) AS JSON_OBJECT_T);
-                    l_texts(j) := resolve(l_run.get_string('t'));
-                    rpt_pdf.set_font(l_run.get_number('f'), l_run.get_number('s'));
-                    l_total := l_total + rpt_pdf.text_width_mm(l_texts(j));
-                END LOOP;
-                l_x := CASE p_para.get_string('al')
-                    WHEN 'R' THEN p_x + p_w - l_total
-                    WHEN 'C' THEN p_x + (p_w - l_total) / 2
-                    ELSE p_x
-                END;
-                FOR j IN 0 .. l_line.get_size - 1 LOOP
-                    l_run := TREAT(l_line.get(j) AS JSON_OBJECT_T);
-                    rpt_pdf.set_font(l_run.get_number('f'), l_run.get_number('s'));
-                    rpt_pdf.set_text_color(NVL(l_run.get_string('c'), '000000'));
-                    rpt_pdf.text(l_x, l_y + l_h * 0.78, l_texts(j));
-                    l_w := rpt_pdf.text_width_mm(l_texts(j));
-                    IF l_w > 0 AND l_run.has('u') THEN      -- subrayado, bajo la línea base
-                        rpt_pdf.line(l_x, l_y + l_h * 0.78 + l_run.get_number('s') * 0.12 * c_pt_to_mm,
-                                     l_x + l_w, l_y + l_h * 0.78 + l_run.get_number('s') * 0.12 * c_pt_to_mm,
-                                     l_run.get_number('s') / 16, NVL(l_run.get_string('c'), '000000'));
+            l_pending := NULL;
+            l_pending_run := NULL;
+            FOR j IN 0 .. l_line.get_size - 1 LOOP
+                l_run := TREAT(l_line.get(j) AS JSON_OBJECT_T);
+                l_text := resolve(l_run.get_string('t'));
+                l_pos := 1;
+                WHILE l_pos <= LENGTH(l_text) LOOP
+                    l_space := SUBSTR(l_text, l_pos, 1) IN (' ', CHR(9));
+                    l_end := l_pos + 1;
+                    WHILE l_end <= LENGTH(l_text) LOOP
+                        IF l_space THEN
+                            EXIT WHEN SUBSTR(l_text, l_end, 1) NOT IN (' ', CHR(9));
+                        ELSE
+                            EXIT WHEN SUBSTR(l_text, l_end, 1) IN (' ', CHR(9));
+                        END IF;
+                        l_end := l_end + 1;
+                    END LOOP;
+                    l_piece := SUBSTR(l_text, l_pos, l_end - l_pos);
+                    IF l_space THEN
+                        l_pending := l_pending || REPLACE(l_piece, CHR(9), '    ');
+                        l_pending_run := j;
+                    ELSE
+                        l_piece_w := width_of(l_run, l_piece);
+                        l_gap_w := 0;
+                        IF l_w > 0 AND l_pending IS NOT NULL THEN
+                            l_gap_w := width_of(TREAT(l_line.get(l_pending_run) AS JSON_OBJECT_T), l_pending);
+                        END IF;
+                        IF l_w > 0 AND l_w + l_gap_w + l_piece_w > l_limit THEN
+                            finish_line;
+                            l_gap_w := 0;
+                        END IF;
+                        IF l_gap_w > 0 THEN
+                            add_piece(l_pending, l_pending_run, l_gap_w);
+                        END IF;
+                        IF l_piece_w <= l_limit THEN
+                            add_piece(l_piece, j, l_piece_w);
+                        ELSE
+                            -- Una palabra sin espacios también debe permanecer dentro de la celda.
+                            FOR k IN 1 .. LENGTH(l_piece) LOOP
+                                l_piece_w := width_of(l_run, SUBSTR(l_piece, k, 1));
+                                IF l_w > 0 AND l_w + l_piece_w > l_limit THEN
+                                    finish_line;
+                                END IF;
+                                add_piece(SUBSTR(l_piece, k, 1), j, l_piece_w);
+                            END LOOP;
+                        END IF;
+                        l_pending := NULL;
+                        l_pending_run := NULL;
                     END IF;
-                    IF l_w > 0 AND l_run.has('x') THEN      -- tachado, a media altura de las minúsculas
-                        rpt_pdf.line(l_x, l_y + l_h * 0.78 - l_run.get_number('s') * 0.3 * c_pt_to_mm,
-                                     l_x + l_w, l_y + l_h * 0.78 - l_run.get_number('s') * 0.3 * c_pt_to_mm,
-                                     l_run.get_number('s') / 16, NVL(l_run.get_string('c'), '000000'));
-                    END IF;
-                    l_x := l_x + l_w;
+                    l_pos := l_end;
                 END LOOP;
-            END IF;
-            l_y := l_y + l_h;
+            END LOOP;
+            finish_line;
         END LOOP;
         RETURN l_y + NVL(p_para.get_number('af'), 0) - p_y;
     END paragraph;
@@ -783,9 +874,9 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
             l_h := GREATEST(l_h, paragraphs_height(l_cell.get_array('ps'), l_w)
                    + l_pad.get_number(1) + l_pad.get_number(3));
         END LOOP;
-        IF l_rule = 'exact' THEN
-            l_h := p_row.get_number('h');
-        ELSIF l_rule = 'atLeast' THEN
+        -- Incluso una altura exacta de Word debe crecer si el valor real ocupa más líneas:
+        -- el PDF no recorta texto y, de lo contrario, invadiría la fila siguiente.
+        IF l_rule IN ('exact', 'atLeast') THEN
             l_h := GREATEST(l_h, p_row.get_number('h'));
         END IF;
         IF NOT p_draw THEN
@@ -800,7 +891,8 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
                 IF pass = 1 AND l_cell.has('fl') AND NOT l_cell.get('fl').is_null THEN
                     rpt_pdf.rect(l_x, p_y, l_w, l_h, l_cell.get_string('fl'), NULL);
                 ELSIF pass = 2 THEN
-                    l_content := paragraphs_height(l_cell.get_array('ps'), l_w);
+                    l_content := paragraphs_height(
+                        l_cell.get_array('ps'), l_w - l_pad.get_number(0) - l_pad.get_number(2));
                     l_y := p_y + l_pad.get_number(1);
                     IF l_cell.get_string('va') = 'C' THEN
                         l_y := p_y + (l_h - l_content) / 2;
@@ -872,12 +964,10 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
 
     -- Fila que se repite: si no cabe, salta de página y repite los encabezados.
     PROCEDURE data_row(p_table IN JSON_OBJECT_T, p_row IN JSON_OBJECT_T, p_header IN JSON_ARRAY_T,
-                       p_next IN JSON_OBJECT_T DEFAULT NULL) IS
+                       p_follow_height IN NUMBER DEFAULT 0) IS
         l_h NUMBER := table_row(p_table, p_row, g_y, FALSE);
     BEGIN
-        IF p_next IS NOT NULL THEN                -- una fila de grupo no queda sola al pie de la página
-            l_h := l_h + table_row(p_table, p_next, g_y, FALSE);
-        END IF;
+        l_h := l_h + p_follow_height;              -- grupo, títulos y primer detalle viajan juntos
         IF g_y + l_h > g_limit AND g_y > g_top + 0.01 THEN
             rpt_pdf.new_page;
             g_y := g_top;
@@ -893,6 +983,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         l_all    JSON_ARRAY_T  := p_table.get_array('hd');
         l_header JSON_ARRAY_T  := JSON_ARRAY_T();   -- encabezados (se repiten en cada página)
         l_groups JSON_ARRAY_T  := JSON_ARRAY_T();   -- filas de grupo, en orden
+        l_page_header JSON_ARRAY_T := JSON_ARRAY_T(); -- encabezados y títulos del grupo al paginar
         l_body   JSON_OBJECT_T := p_table.get_object('bd');
         l_footer JSON_ARRAY_T  := p_table.get_array('ft');
         l_sums   JSON_ARRAY_T  := p_table.get_array('sm');
@@ -915,6 +1006,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         l_def    JSON_OBJECT_T;
         l_new    BOOLEAN;
         l_row    JSON_OBJECT_T;
+        l_follow NUMBER;
 
         -- Datos de la fila recién leída (en g_row): fórmulas, acumulados y totales.
         PROCEDURE take_row IS
@@ -956,7 +1048,13 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
     BEGIN
         FOR i IN 0 .. l_all.get_size - 1 LOOP
             l_row := TREAT(l_all.get(i) AS JSON_OBJECT_T);
-            IF l_row.has('g') THEN l_groups.append(l_row); ELSE l_header.append(l_row); END IF;
+            IF l_row.has('g') THEN
+                l_groups.append(l_row);
+                IF l_row.has('gh') THEN l_page_header.append(l_row); END IF;
+            ELSE
+                l_header.append(l_row);
+                l_page_header.append(l_row);
+            END IF;
         END LOOP;
         l_buffer := l_hide OR p_table.has('hs') OR l_groups.get_size > 0;
         g_sums.DELETE;
@@ -1028,11 +1126,16 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
                                                         THEN l_gsums(j || CHR(2) || l_key || CHR(2) || l_gkey) ELSE 0 END;
                             END IF;
                         END LOOP;
-                        data_row(p_table, l_row, l_header, l_body);
+                        l_follow := table_row(p_table, l_body, 0, FALSE);
+                        FOR k IN j + 1 .. l_groups.get_size - 1 LOOP
+                            l_follow := l_follow + table_row(
+                                p_table, TREAT(l_groups.get(k) AS JSON_OBJECT_T), 0, FALSE);
+                        END LOOP;
+                        data_row(p_table, l_row, l_header, l_follow);
                         g_sums := l_totals;
                     END IF;
                 END LOOP;
-                data_row(p_table, l_body, l_header);
+                data_row(p_table, l_body, l_page_header);
             END LOOP;
         END IF;
         draw_rows(p_table, l_footer);

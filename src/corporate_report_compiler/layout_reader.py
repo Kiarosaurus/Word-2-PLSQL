@@ -170,10 +170,17 @@ class _Reader:
                 if zone not in expected:
                     where = ("la fila que se repite o en una fila de grupo de una tabla de datos" if kind == "COLUMN"
                              else "las filas que no se repiten de una tabla de datos")
+                    found = {
+                        "page": "el encabezado o pie de página", "body": "un párrafo del cuerpo",
+                        "cell": "una tabla sin fila de detalle", "data-header": "una fila de títulos",
+                        "data-body": "la fila de detalle", "data-footer": "una fila de totales",
+                    }.get(zone, "otra zona del documento")
                     self.diagnostics.error(
                         "LAYOUT-TOKEN-005",
-                        f"{match.group(0)} solo se admite en {where}.",
+                        f"Se encontró {match.group(0)} en {found}; se esperaba en {where}.",
                         location=location,
+                        suggestion=("Mueva el marcador a la fila que corresponde a cada registro de la consulta."
+                                    if kind == "COLUMN" else "Mueva el total a un título o a una fila de totales de su tabla."),
                     )
                     continue
                 table_query, column = name.split(".", 1)
@@ -341,7 +348,10 @@ class _Reader:
 
         rows_xml = list(tbl.iter(qn("w:tr")))
         if any(nested is not tbl for nested in tbl.iter(qn("w:tbl"))):
-            self.diagnostics.error("LAYOUT-TABLE-001", "No se admiten tablas anidadas.", location=location)
+            self.diagnostics.error(
+                "LAYOUT-TABLE-001", "Se encontró una tabla dentro de otra; el diseño admite tablas separadas.",
+                location=location, suggestion="Saque la tabla interior de la celda y colóquela después de la tabla exterior.",
+            )
             return None
         floating = props.find(qn("w:tblpPr")) if props is not None else None
         if floating is not None:
@@ -392,8 +402,9 @@ class _Reader:
                 if tc_props is not None and tc_props.find(qn("w:vMerge")) is not None:
                     self.diagnostics.error(
                         "LAYOUT-TABLE-004",
-                        "No se admiten celdas combinadas en vertical; combine solo en horizontal.",
+                        "Se encontró una celda combinada en vertical; solo se admiten combinaciones horizontales.",
                         location=cell_location,
+                        suggestion="Separe esa celda en filas independientes o combine celdas de la misma fila.",
                     )
                 cell_borders = tc_props.find(qn("w:tcBorders")) if tc_props is not None else None
 
@@ -428,8 +439,9 @@ class _Reader:
             if column != len(widths):
                 self.diagnostics.error(
                     "LAYOUT-TABLE-005",
-                    "La fila no ocupa todas las columnas de la tabla.",
+                    f"La fila ocupa {column} de {len(widths)} columnas de la tabla.",
                     location=row_location,
+                    suggestion="Revise las celdas combinadas y los huecos de la fila para que coincidan con la cuadrícula de Word.",
                 )
             rule = height.get(qn("w:hRule"), "atLeast") if height is not None else "auto"
             rows.append({"h": self._twips(height, "w:val"), "hr": rule if rule in {"exact", "atLeast"} else "auto", "cs": cells})
@@ -463,6 +475,8 @@ class _Reader:
             for i in indexes:
                 if plan["rows"][i][1] == "data-group":
                     rows[i]["g"] = plan["groups"][i]
+                    if i in plan["group_titles"]:
+                        rows[i]["gh"] = True
             body = next(rows[i] for i in indexes if plan["rows"][i][1] == "data-body")
             footer = [rows[i] for i in indexes if plan["rows"][i][1] == "data-footer"]
             data = {"k": "D", "q": query, **block, "hd": header, "bd": body, "ft": footer,
@@ -499,7 +513,8 @@ class _Reader:
         Cada fila que no se repite va con la sección cuya consulta usa; si no usa ninguna,
         con la sección siguiente (título o encabezados) o, al final, con la última (totales).
         Dentro de una sección, las filas de encabezado que muestran datos de su consulta son
-        filas de grupo: se repiten cada vez que cambian esos datos (grupos de Reports).
+        filas de grupo. Las filas estáticas que siguen a un grupo (por ejemplo, títulos de
+        columnas) pertenecen al mismo grupo y conservan su posición delante del detalle.
         """
 
         refs = [self._marker_refs("".join(t.text or "" for t in row.iter(qn("w:t")))) for row in rows_xml]
@@ -530,14 +545,19 @@ class _Reader:
             assignment.append((section, "data-header" if index < bodies[section] else "data-footer"))
         for index in range(1, len(assignment)):
             if assignment[index][0] < assignment[index - 1][0]:
+                previous_query = queries[assignment[index - 1][0]]
+                current_query = queries[assignment[index][0]]
                 self.diagnostics.error(
                     "LAYOUT-TABLE-002",
-                    "Las filas de cada consulta deben ir juntas: totales debajo de su fila {{COLUMN:...}} "
-                    "y títulos o encabezados de la siguiente después.",
+                    f"Esta fila pertenece a {current_query}, pero aparece después de una fila de "
+                    f"{previous_query}. Se esperaban las filas de cada consulta juntas.",
                     location=f"{location}, fila {index + 1}",
+                    suggestion="Coloque los totales debajo del detalle de su consulta y, después, "
+                               "los títulos y el detalle de la siguiente consulta.",
                 )
                 return None
         groups: dict[int, list[str]] = {}
+        group_titles: set[int] = set()
         for section, query in enumerate(queries):
             keys: list[str] = []
             header = [i for i, (owner, zone) in enumerate(assignment) if owner == section and zone == "data-header"]
@@ -550,14 +570,12 @@ class _Reader:
                     assignment[index] = (section, "data-group")
                     groups[index] = list(keys)
                 elif seen_group:
-                    self.diagnostics.error(
-                        "LAYOUT-TABLE-007",
-                        "Las filas de grupo (con datos de la consulta de la tabla) deben ir justo antes de la fila "
-                        "que se repite.",
-                        location=f"{location}, fila {index + 1}",
-                    )
-                    return None
-        return {"queries": queries, "rows": assignment, "groups": groups}
+                    # Un título después del valor de grupo debe aparecer tras él cada vez
+                    # que cambie el grupo, no junto a los encabezados generales de página.
+                    assignment[index] = (section, "data-group")
+                    groups[index] = list(keys)
+                    group_titles.add(index)
+        return {"queries": queries, "rows": assignment, "groups": groups, "group_titles": group_titles}
 
     # ------------------------------------------------------------- zonas
     def blocks(self, container: Any, parent: Any, *, zone: str, content_width: float, label: str) -> list[dict[str, Any]]:
