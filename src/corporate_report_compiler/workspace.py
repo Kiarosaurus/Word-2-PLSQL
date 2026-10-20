@@ -103,6 +103,150 @@ def existing_page(docx_path: Path, projects_root: Path | None = None) -> str | N
     return max(sorted(set(pages)), key=pages.count) if pages else None
 
 
+PAGE_NUMBER = re.compile(r"0|[1-9][0-9]{0,5}")
+ITEM_PAGE = re.compile(rf"^P([0-9]+|{PAGE_PLACEHOLDER})_[A-Z0-9_$#]+$")
+
+
+@dataclass(frozen=True, slots=True)
+class PageItem:
+    item: str          # nombre actual, en mayúsculas
+    use: str           # para qué sirve: ":CHQ (VARCHAR2)", "{{FIELD:UNIDAD}}", "formato PDF/XLSX"...
+
+
+def _read_project(project_path: Path) -> dict | None:
+    try:
+        raw = json.loads(Path(project_path).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def page_items(project_path: Path) -> list[PageItem]:
+    """Page Items que declara un .report.json (parámetros, campos ITEM, formato y orientación)."""
+
+    raw = _read_project(project_path)
+    if raw is None:
+        return []
+    items: list[PageItem] = []
+    for key in ("parameters", "bindings"):
+        for entry in raw.get(key) or []:
+            if isinstance(entry, dict) and isinstance(entry.get("item"), str):
+                name = str(entry.get("name") or entry.get("bind") or "").upper()
+                kind = str(entry.get("type") or "VARCHAR2").upper()
+                items.append(PageItem(entry["item"].upper(), f":{name} ({kind})"))
+    for entry in raw.get("fields") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("item"), str):
+            items.append(PageItem(entry["item"].upper(), f"{{{{FIELD:{entry.get('name')}}}}}"))
+    for key, use in (("format_item", "formato PDF/XLSX"), ("orientation_item", "orientación")):
+        if isinstance(raw.get(key), str):
+            items.append(PageItem(raw[key].upper(), use))
+    return items
+
+
+def current_page(project_path: Path) -> str | None:
+    """Página de los Page Items del proyecto (número o XX; la más frecuente, sin contar la 0)."""
+
+    pages = [match.group(1) for item in page_items(project_path) if (match := ITEM_PAGE.match(item.item))]
+    pages = [page for page in pages if page != "0"]
+    return max(sorted(set(pages)), key=pages.count) if pages else None
+
+
+@dataclass(slots=True)
+class PageChange:
+    old: str | None
+    new: str
+    renamed: dict[str, str] = field(default_factory=dict)       # item anterior -> item nuevo
+    files: list[tuple[Path, int]] = field(default_factory=list)  # archivo, reemplazos
+    error: str | None = None
+
+
+VALID_ITEM = re.compile(rf"^P(?:0|[1-9][0-9]{{0,5}}|{PAGE_PLACEHOLDER})_[A-Z][A-Z0-9_]{{0,119}}$")
+
+
+def rename_items(project_path: Path, mapping: dict[str, str]) -> PageChange:
+    """Renombra Page Items del proyecto, cada uno a su nuevo nombre (``{"P30_CHQ": "P40_CHEQUE"}``).
+
+    Solo se aceptan items que declara el .report.json. Se reemplazan, a la vez
+    (sirve para intercambiar nombres), en todos los .json/.sql/.txt de la
+    carpeta del proyecto: .report.json, q_*.sql, apex_process.sql, package...
+    """
+
+    path = Path(project_path)
+    change = PageChange(current_page(path), "")
+    declared = list(dict.fromkeys(item.item for item in page_items(path)))
+    renamed = {}
+    for old, new in mapping.items():
+        old, new = old.strip().upper(), new.strip().upper()
+        if old not in declared:
+            change.error = f"{old} no es un Page Item del proyecto."
+            return change
+        if not VALID_ITEM.fullmatch(new):
+            change.error = (f"{new or '(vacío)'} no es un nombre de Page Item válido: debe ser P<página>_<NOMBRE> "
+                            f"(por ejemplo P40_CHQ, o P{PAGE_PLACEHOLDER}_CHQ), con letras, números y _.")
+            return change
+        if new != old:
+            renamed[old] = new
+    final = [renamed.get(item, item) for item in declared]
+    repeated = sorted({item for item in final if final.count(item) > 1})
+    if repeated:
+        change.error = "Dos Page Items quedarían con el mismo nombre: " + ", ".join(repeated) + "."
+        return change
+    if not renamed:
+        change.error = "No hay cambios: los Page Items ya tienen esos nombres."
+        return change
+    change.renamed = renamed
+    pattern = re.compile(r"(?<![\w$#])(" + "|".join(map(re.escape, renamed)) + r")(?![\w$#])", re.IGNORECASE)
+    layout = workspace_outputs(path)
+    folder = layout[1] if layout is not None else path.parent
+    candidates = {path, *(item for item in folder.rglob("*")
+                          if item.is_file() and item.suffix.lower() in SCANNED_SUFFIXES)}
+    for target in sorted(candidates):
+        try:
+            data = target.read_bytes()
+        except OSError:
+            continue
+        bom = data.startswith(b"\xef\xbb\xbf")
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            continue
+        updated, count = pattern.subn(lambda match: renamed[match.group(1).upper()], text)
+        if count:
+            try:
+                target.write_bytes((b"\xef\xbb\xbf" if bom else b"") + updated.encode("utf-8"))
+            except OSError as exc:
+                change.error = f"No se pudo escribir {target}: {exc}"
+                return change
+            change.files.append((target, count))
+    change.new = current_page(path) or ""
+    return change
+
+
+def change_page(project_path: Path, new_page: str) -> PageChange:
+    """Cambia la página de los Page Items del proyecto (P30_X -> P40_X, o PXX_X -> P40_X).
+
+    Los items de la página 0 (formato, orientación) no se tocan.
+    """
+
+    path = Path(project_path)
+    new_page = str(new_page).strip().upper()
+    change = PageChange(current_page(path), new_page)
+    if not PAGE_NUMBER.fullmatch(new_page) or new_page == "0":
+        change.error = "El número de página debe ser numérico y distinto de 0 (por ejemplo 40)."
+        return change
+    if change.old is None:
+        change.error = "El proyecto no tiene Page Items con número de página que cambiar."
+        return change
+    if change.old == new_page:
+        change.error = f"Los Page Items ya usan la página {new_page}."
+        return change
+    prefix = f"P{change.old}_"
+    result = rename_items(path, {item.item: f"P{new_page}_{item.item[len(prefix):]}"
+                                 for item in page_items(path) if item.item.startswith(prefix)})
+    result.old, result.new = change.old, new_page
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class WorkspacePaths:
     project_dir: Path
@@ -349,7 +493,8 @@ def _import_layout_docx(source: Path, root: Path, *, replace: bool, page: str = 
         "schema": "corporate-layout-project/1.0",
         "report_id": identifier,
         "template": f"../{paths.docx.name}",
-        "title": re.sub(r"\s+", " ", source.stem.replace("_", " ")).strip() or "Reporte",
+        "title": (model.title if model is not None and model.title else None)
+                 or re.sub(r"\s+", " ", source.stem.replace("_", " ")).strip() or "Reporte",
         "file_name": re.sub(r"[^A-Za-z0-9_-]+", "_", source.stem).strip("_") or "reporte",
         **({"reports_model": f"{paths.docx.stem}.reports.xml"} if model is not None else {}),
         **({"reports_code": REPORTS_CODE_DIR} if code_files else {}),
@@ -613,3 +758,174 @@ def format_size(size: int) -> str:
             return f"{size} {unit}" if unit == "bytes" else f"{size:.1f} {unit}"
         size /= 1024
     return f"{size} bytes"
+
+
+# ------------------------------------------------------------------ actualizar solo el Word
+@dataclass(slots=True)
+class DocxUpdate:
+    diagnostics: Diagnostics
+    docx: Path | None = None
+    backup: Path | None = None
+    added_queries: list[str] = field(default_factory=list)      # q_*.sql nuevos
+    added_parameters: list[str] = field(default_factory=list)   # Page Items nuevos
+    added_constants: list[str] = field(default_factory=list)
+    unused_queries: list[str] = field(default_factory=list)     # el Word ya no las usa (se conservan)
+    qualified_tables: list[str] = field(default_factory=list)   # tablas nuevas con el esquema/DB link del resto
+    code_files: list[Path] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+def update_docx(project_path: Path, docx_path: Path) -> DocxUpdate:
+    """Reemplaza solo la plantilla Word del proyecto, conservando todo lo ajustado a mano.
+
+    No toca el .report.json (Page Items, título, constantes...), los q_*.sql ni
+    generado/codigo_reports. Si el Word nuevo usa datos que el proyecto aún no
+    tenía, agrega lo que falte: las consultas nuevas (con el SQL de Reports y, en
+    sus tablas, el mismo esquema/DB link que ya usa el resto del proyecto), los
+    parámetros nuevos como Page Items de la misma página y las constantes.
+    """
+
+    from .layout_compiler import is_layout_project
+    from .sources import project_tables, set_table_source
+
+    diagnostics = Diagnostics(strict=True)
+    project = Path(project_path)
+    source = Path(docx_path).expanduser().resolve()
+    result = DocxUpdate(diagnostics)
+    try:
+        raw = json.loads(project.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        diagnostics.error("IO-011", f"No se pudo leer el proyecto: {exc}", location=str(project))
+        return result
+    target = (project.parent / str(raw.get("template") or "")).resolve()
+    if not raw.get("template") or target.suffix.lower() != ".docx":
+        diagnostics.error("IO-011", "El proyecto no indica su plantilla .docx ('template').", location=str(project))
+        return result
+    if not source.is_file() or source.suffix.lower() != ".docx":
+        diagnostics.error("IO-011", "Elija un archivo .docx.", location=str(source))
+        return result
+    layout = is_layout_project(project)
+    model = None
+    if layout and raw.get("reports_model"):
+        model = load_reports_model(project.parent / str(raw["reports_model"]), diagnostics)
+        if model is None:
+            return result
+        code_dir = project.parent / str(raw.get("reports_code") or REPORTS_CODE_DIR)
+        for unit in sorted(code_dir.glob("*.sql")) if code_dir.is_dir() else []:
+            model.program_units[unit.stem.lower()] = unit.read_text(encoding="utf-8-sig")
+    template = (read_layout_template(source, diagnostics, model) if layout
+                else read_template(source, diagnostics))
+    if template is None or diagnostics.has_errors:
+        return result                      # el Word nuevo tiene errores: no se toca nada
+
+    # Lo que el Word nuevo necesita y el proyecto no tiene.
+    files: dict[str, str] = {}
+    code_files: dict[str, str] = {}
+    if layout:
+        queries = dict(raw.get("queries") or {})
+        needed, plan = _project_queries(template, model)
+        parameter_names: set[str] = set(plan.parameters) if plan is not None else set()
+        for name in sorted(needed - set(queries)):
+            if model is not None and name in model.queries:
+                files[name] = _reports_query_file(name, model, plan)
+                parameter_names |= {bind.upper() for bind in re.findall(r":([A-Za-z][A-Za-z0-9_$#]*)",
+                                                                       model.queries[name]["sql"])
+                                    if bind.upper() in model.parameters}
+            else:
+                files[name] = _layout_query_skeleton(name, template.queries.get(name, set()))
+        result.unused_queries = sorted(set(queries) - needed)
+        if plan is not None:
+            for unit in plan.units:
+                if unit.stub and not (project.parent / REPORTS_CODE_DIR / f"{unit.name}.sql").exists():
+                    code_files[unit.name] = _reports_code_file(unit, model)
+            result.notes += plan.pending
+        constants = dict(raw.get("constants") or {})
+        for name in sorted(template.fields):
+            if model is not None and name in model.parameters:
+                parameter_names.add(name)
+            elif name not in constants:
+                constants[name] = name
+                result.added_constants.append(name)
+        declared = {str(entry.get("name", "")).upper() for entry in raw.get("parameters") or []
+                    if isinstance(entry, dict)}
+        page = current_page(project) or PAGE_PLACEHOLDER
+        parameters = list(raw.get("parameters") or [])
+        for name in sorted(parameter_names - declared):
+            kind = PARAMETER_TYPES_FROM_REPORTS.get((model.parameters[name]["datatype"] or "").lower(), "VARCHAR2")
+            item = name[2:] if name.startswith("P_") and len(name) > 2 else name
+            entry = {"name": name, "item": f"P{page}_{item}"[:128], "type": kind, "required": False}
+            if kind == "DATE":
+                entry["format_mask"] = "DD/MM/YYYY"
+            parameters.append(entry)
+            result.added_parameters.append(entry["item"])
+        for name in files:
+            queries[name] = f"q_{name.lower()}.sql"
+        raw["queries"] = dict(sorted(queries.items()))
+        raw["parameters"] = parameters
+        raw["constants"] = constants
+        if code_files:
+            raw.setdefault("reports_code", REPORTS_CODE_DIR)
+
+    # Esquema/DB link que ya usa cada tabla en el resto del proyecto (antes de agregar las consultas nuevas).
+    known_forms = {table.table: table.forms for table in project_tables(project)} if files else {}
+
+    backup = project.parent / f"{target.name}.bak"
+    try:
+        if target.exists() and not _same_file(target, source):
+            os.replace(target, backup)
+            result.backup = backup
+        if not target.exists():
+            shutil.copyfile(source, target)
+        for name, content in files.items():
+            path = project.parent / f"q_{name.lower()}.sql"
+            if not path.exists():
+                path.write_text(content, encoding="utf-8", newline="\n")
+            result.added_queries.append(path.name)
+        for name, content in code_files.items():
+            path = project.parent / REPORTS_CODE_DIR / f"{name}.sql"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8", newline="\n")
+            result.code_files.append(path)
+        if layout and (files or result.added_parameters or result.added_constants or code_files):
+            project.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    except OSError as exc:
+        diagnostics.error("IO-010", f"No se pudo actualizar el proyecto: {exc}", location=str(project.parent))
+        return result
+    result.docx = target
+
+    # Tablas de las consultas nuevas: el mismo origen que ya tienen en el resto del proyecto, si es uno solo.
+    for table, forms in sorted(known_forms.items()):
+        qualified_forms = {form.upper() for form in forms if form.upper() != table}
+        if len(qualified_forms) == 1 and len(forms) == 1:
+            match = re.fullmatch(r"(?:([^.@]+)\.)?[^.@]+(?:@(.+))?", qualified_forms.pop())
+            if match and set_table_source(project, [table], match.group(1) or "", match.group(2) or "").files:
+                result.qualified_tables.append(table)
+    return result
+
+
+def format_update(result: DocxUpdate) -> list[str]:
+    lines = ["WORD ACTUALIZADO", "=" * 16, f"Plantilla: {result.docx}"]
+    if result.backup:
+        lines.append(f"Copia del Word anterior: {result.backup.name}")
+    lines.append("Se conservaron el .report.json (Page Items, título...), los q_*.sql y generado/codigo_reports.")
+    if result.added_queries:
+        lines += ["", "Consultas nuevas que usa el Word (con el SQL de Oracle Reports):",
+                  *(f"  generado/{name}" for name in result.added_queries)]
+    if result.qualified_tables:
+        lines += ["  Con el mismo esquema/DB link que ya tenían en el proyecto: " + ", ".join(result.qualified_tables)]
+    if result.added_queries:
+        lines.append("  Revise el origen de sus tablas en «Administrar items y tablas…» > Tablas (FROM).")
+    if result.added_parameters:
+        lines += ["", "Page Items nuevos (créelos en APEX):", *(f"  {item}" for item in result.added_parameters)]
+    if result.added_constants:
+        lines += ["", "Constantes nuevas en el .report.json (revise su valor):",
+                  *(f"  {name}" for name in result.added_constants)]
+    if result.code_files:
+        lines += ["", "Fórmulas que no se pudieron convertir (corríjalas aquí):",
+                  *(f"  {path}" for path in result.code_files)]
+    if result.unused_queries:
+        lines += ["", "Consultas que el Word ya no usa (se conservan; puede quitarlas del .report.json):",
+                  *(f"  {name}" for name in result.unused_queries)]
+    if not (result.added_queries or result.added_parameters or result.added_constants or result.code_files):
+        lines += ["", "El Word nuevo no necesita datos nuevos: solo cambió la plantilla."]
+    return lines + ["", "Siguiente: pulse Compilar y vuelva a ejecutar el package del reporte en la base.", "", ""]

@@ -343,6 +343,17 @@ class _Reader:
         if any(nested is not tbl for nested in tbl.iter(qn("w:tbl"))):
             self.diagnostics.error("LAYOUT-TABLE-001", "No se admiten tablas anidadas.", location=location)
             return None
+        floating = props.find(qn("w:tblpPr")) if props is not None else None
+        if floating is not None:
+            # Word la dibuja desplazada (tblpX/tblpY) y con el texto alrededor; el motor, en su lugar del texto.
+            self.diagnostics.warning(
+                "LAYOUT-TABLE-006",
+                "La tabla es flotante en Word (ajuste de texto «Alrededor»): Word la muestra desplazada, pero "
+                "el PDF la dibuja donde está en el documento, después del bloque anterior.",
+                location=location,
+                suggestion="En Word: clic derecho en la tabla > Propiedades de tabla > Ajuste del texto: Ninguno; "
+                           "luego córtela y péguela en el lugar del documento donde debe aparecer.",
+            )
         text = "".join(t.text or "" for t in tbl.iter(qn("w:t")))
         is_data = "{{COLUMN:" in re.sub(r"\s", "", text).upper()
         plan = self._data_sections(rows_xml, location) if is_data else None
@@ -361,10 +372,17 @@ class _Reader:
                 row_zone = zone
             tr_props = row.find(qn("w:trPr"))
             height = tr_props.find(qn("w:trHeight")) if tr_props is not None else None
-            if tr_props is not None and tr_props.find(qn("w:gridBefore")) is not None:
-                self.diagnostics.error("LAYOUT-TABLE-003", "No se admiten filas desplazadas (gridBefore).", location=row_location)
+            # Fila más corta que la tabla (Word: se arrastró su borde): columnas vacías antes
+            # (gridBefore) o después (gridAfter) de sus celdas. Se dejan en blanco, sin bordes.
+            def grid_gap(name: str) -> int:
+                node = tr_props.find(qn(f"w:{name}")) if tr_props is not None else None
+                try:
+                    return max(int(node.get(qn("w:val"), "0")), 0) if node is not None else 0
+                except ValueError:
+                    return 0
+
             cells: list[dict[str, Any]] = []
-            column = 0
+            column = grid_gap("gridBefore")
             cells_xml = [child for child in row if child.tag == qn("w:tc")]
             for cell in cells_xml:
                 cell_location = f"{row_location}, columna {column + 1}"
@@ -406,6 +424,7 @@ class _Reader:
                 cells.append({"c": column, "sp": span, "fl": fill, "va": valign,
                               "b": {key: value for key, value in borders.items() if value}, "ps": paragraphs})
                 column += span
+            column += grid_gap("gridAfter")
             if column != len(widths):
                 self.diagnostics.error(
                     "LAYOUT-TABLE-005",

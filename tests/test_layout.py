@@ -116,6 +116,50 @@ class LayoutReaderTests(unittest.TestCase):
         _template, diagnostics = self.read(document)
         self.assertIn("LAYOUT-TABLE-004", codes(diagnostics))
 
+    def test_rows_shorter_than_the_table_are_accepted(self) -> None:
+        # Word: fila acortada arrastrando su borde -> columnas vacías gridBefore/gridAfter.
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        document = base_document()
+        table = tool.new_table(document, 2, [20, 20, 20])
+        rows = table._tbl.findall(qn("w:tr"))
+        for row, (name, keep) in zip(rows, (("w:gridAfter", 0), ("w:gridBefore", 2))):
+            cells = row.findall(qn("w:tc"))
+            for index, cell in enumerate(cells):
+                if index != keep:
+                    row.remove(cell)
+            props = row.find(qn("w:trPr"))
+            if props is None:
+                props = OxmlElement("w:trPr")
+                row.insert(0, props)
+            gap = OxmlElement(name)
+            gap.set(qn("w:val"), "2")
+            props.append(gap)
+        data_table(document, ["{{COLUMN:Q.A}}"])
+        template, diagnostics = self.read(document)
+        self.assertNotIn("LAYOUT-TABLE-005", codes(diagnostics))
+        self.assertNotIn("LAYOUT-TABLE-003", codes(diagnostics))
+        grid = next(block for block in template.layout["body"] if block.get("k") == "G")
+        self.assertEqual([cell["c"] for cell in grid["rs"][0]["cs"]], [0])        # hueco al final
+        self.assertEqual([cell["c"] for cell in grid["rs"][1]["cs"]], [2])        # hueco al inicio
+
+    def test_floating_table_is_warned(self) -> None:
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        document = base_document()
+        table = tool.new_table(document, 1, [30, 30])
+        position = OxmlElement("w:tblpPr")
+        position.set(qn("w:vertAnchor"), "text")
+        position.set(qn("w:tblpY"), "-4283")
+        table._tbl.tblPr.append(position)
+        data_table(document, ["{{COLUMN:Q.A}}"])
+        _template, diagnostics = self.read(document)
+        warning = next(item for item in diagnostics.items if item.code == "LAYOUT-TABLE-006")
+        self.assertEqual(warning.severity, "WARNING")
+        self.assertIn("Ajuste del texto: Ninguno", warning.suggestion)
+
     def test_empty_markers_from_ai_are_listed_as_pending(self) -> None:
         document = base_document()
         tool.new_table(document, 1, [30, 30])
@@ -181,6 +225,19 @@ class LayoutProjectTests(unittest.TestCase):
         compile_project(self.project, output, process_directory=process_directory)
         for relative in ("apex_process.sql", "rpt_estado_cuenta.sql", "generado/layout.json"):
             self.assertEqual((self.copy / relative).read_bytes(), (DEMO / relative).read_bytes(), relative)
+
+    def test_pdf_is_downloaded_by_default_and_can_open_inline(self) -> None:
+        from corporate_report_compiler.apex_guide import process_code
+
+        self.assertIn("Content-Disposition: attachment; filename=\"estado_cuenta.pdf\"",
+                      process_code(validate_project(self.project)))
+        raw = json.loads(self.project.read_text(encoding="utf-8"))
+        raw["disposition"] = "inline"
+        self.project.write_text(json.dumps(raw), encoding="utf-8")
+        self.assertIn("Content-Disposition: inline;", process_code(validate_project(self.project)))
+        raw["disposition"] = "abrir"
+        self.project.write_text(json.dumps(raw), encoding="utf-8")
+        self.assertIn("LAYOUT-PROJECT-007", {item.code for item in validate_project(self.project).diagnostics.items})
 
 
 if __name__ == "__main__":

@@ -313,5 +313,34 @@ class ReportsImportTests(unittest.TestCase):
         self.assertIn("null;", fix.read_text(encoding="utf-8"))
 
 
+class ReportsTitleTests(unittest.TestCase):
+    def test_title_is_the_emphasized_margin_text(self) -> None:
+        xml = """<report name="R"><data><dataSource name="Q"><select>select 1 a from dual</select>
+          <group name="G"><dataItem name="A"><dataDescriptor order="1"/></dataItem></group></dataSource></data>
+          <layout><section name="main"><margin>
+            <text name="B_1"><textSegment><font face="Arial" size="8"/><string>PÁG. DE TOTAL</string></textSegment></text>
+            <text name="B_2"><textSegment><font face="Arial" size="8" bold="yes" underline="yes"/>
+              <string>DETALLE DEL PRÉSTAMO OTORGADO</string></textSegment></text>
+          </margin></section></layout></report>"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "r.xml"
+            path.write_text(xml, encoding="utf-8")
+            self.assertEqual(load_reports_model(path, Diagnostics()).title, "DETALLE DEL PRÉSTAMO OTORGADO")
+        self.assertIsNone(load_reports_model(FIXTURE, Diagnostics()).title)
+
+
+class LayoutEngineStaticTests(unittest.TestCase):
+    def test_formulas_of_a_master_group_without_rows_are_not_computed(self) -> None:
+        # Como Reports: sin filas en la consulta maestra, sus fórmulas no fallan con columnas NULL.
+        body = (Path(__file__).resolve().parents[1] / "sql" / "modo_layout" / "rpt_layout.pkb").read_text(
+            encoding="utf-8")
+        self.assertIn("g_empty(p_name) := TRUE;", body)
+        self.assertIn("g_empty.DELETE(p_name);", body)
+        self.assertIn("g_empty.DELETE;", body)
+        handler = body[body.index("FUNCTION eval_formula"):body.index("END eval_formula")]
+        self.assertLess(handler.index("g_empty.EXISTS(l_formula.get_string('q'))"),
+                        handler.index("RAISE_APPLICATION_ERROR(-20736"))
+
+
 if __name__ == "__main__":
     unittest.main()

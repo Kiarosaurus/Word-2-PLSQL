@@ -64,6 +64,7 @@ class ReportsModel:
     links: list[dict] = field(default_factory=list)
     program_units: dict[str, str] = field(default_factory=dict)  # nombre (minúsculas) -> PL/SQL
     groups: dict[str, list[str]] = field(default_factory=dict)    # grupo (mayúsculas) -> columnas propias
+    title: str | None = None     # texto del título en el margen del diseño (DETALLE DEL PRÉSTAMO...)
 
     # ------------------------------------------------------------ resolución
     def suggestions(self, name: str) -> list[str]:
@@ -316,4 +317,20 @@ def load_reports_model(xml_path: Path, diagnostics: Diagnostics) -> ReportsModel
         name, source = _ident(item.get("name")), _ident(item.get("source"))
         if name and source:
             model.fields[name] = (source, _report_mask(item.get("formatMask")))
+    model.title = _margin_title(root)
     return model
+
+
+def _margin_title(root: ET.Element) -> str | None:
+    """Título del reporte: el texto del margen con varias palabras, preferido si está en negrita o subrayado."""
+
+    candidates: list[tuple[int, int, str]] = []
+    for margin in root.iter("margin"):
+        for order, text in enumerate(margin.iter("text")):
+            value = " ".join("".join(text.itertext()).split())
+            if len(value.split()) < 3 or len(value) > 255:
+                continue
+            font = text.find(".//font")
+            emphasis = sum(font is not None and font.get(key) == "yes" for key in ("bold", "underline"))
+            candidates.append((-emphasis, order, value))
+    return min(candidates)[2] if candidates else None

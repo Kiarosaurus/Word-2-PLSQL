@@ -52,7 +52,10 @@ LAYOUT_SCHEMA = "corporate-layout-project/1.0"
 IDENT = re.compile(r"^[A-Z][A-Z0-9_$#]{0,29}$")
 PARAMETER_TYPES = {"VARCHAR2", "NUMBER", "DATE"}
 ALLOWED_KEYS = {"schema", "report_id", "template", "title", "file_name", "package", "parameters", "queries", "constants",
-                "reports_model", "reports_code"}
+                "reports_model", "reports_code", "disposition"}
+# Cómo entrega APEX el PDF: attachment = se descarga con su nombre; inline = se abre en el navegador
+# (Chrome guarda entonces «wwv_flow.accept» en vez del nombre, porque la página vino de un submit).
+DISPOSITIONS = ("attachment", "inline")
 LAYOUT_ARTIFACTS = ("layout.json", "validation.json", "apex_process.sql")
 
 
@@ -68,6 +71,7 @@ class LayoutProject:
     queries: dict[str, dict[str, Any]]           # nombre -> {file, path, sql, binds}
     constants: dict[str, str] = field(default_factory=dict)
     reports: ReportsPlan | None = None           # código convertido de Oracle Reports
+    disposition: str = "attachment"
 
     @property
     def package_file(self) -> str:
@@ -122,6 +126,10 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
     file_name = raw.get("file_name") or (report_id or "reporte").lower()
     if not isinstance(file_name, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,180}", file_name):
         diagnostics.error("LAYOUT-PROJECT-005", "'file_name' admite letras, números, _ o -, hasta 180.")
+    disposition = raw.get("disposition") or "attachment"
+    if disposition not in DISPOSITIONS:
+        diagnostics.error("LAYOUT-PROJECT-007", "'disposition' debe ser \"attachment\" (descargar el PDF) o "
+                          "\"inline\" (abrirlo en el navegador).")
     package = _ident(raw.get("package") or f"RPT_{report_id or 'REPORTE'}"[:30], "package", diagnostics,
                      "LAYOUT-PROJECT-006")
 
@@ -227,7 +235,7 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
     if diagnostics.has_errors or report_id is None or template_path is None or package is None:
         return None, template
     return LayoutProject(path, report_id, template_path, title, file_name, package, parameters, queries, constants,
-                         reports_plan), template
+                         reports_plan, disposition), template
 
 
 def _check_reports_plan(plan: ReportsPlan, template: LayoutTemplate, queries: dict[str, Any], known: set[str],
@@ -269,7 +277,7 @@ def build_layout_definition(project: LayoutProject, template: LayoutTemplate) ->
         "compiler": {"name": COMPILER_NAME, "version": __version__},
         "source": {"file_name": template.source_path.name, "sha256": template.source_sha256},
         "report": {"id": project.report_id, "title": project.title, "file_name": project.file_name,
-                   "package": project.package},
+                   "package": project.package, "disposition": project.disposition},
         "parameters": project.parameters,
         "queries": {name: {"file": q["file"], "sql": q["sql"], "binds": q["binds"],
                            **({"columns": q["columns"]} if q.get("columns") else {}),
@@ -451,7 +459,7 @@ def build_layout_process(definition: dict[str, Any]) -> str:
         "    sys.htp.init;",
         "    sys.owa_util.mime_header('application/pdf', false);",
         "    sys.htp.p('Content-Length: ' || dbms_lob.getlength(l_pdf));",
-        f"    sys.htp.p('Content-Disposition: inline; filename=\"{file_name}.pdf\"');",
+        f"    sys.htp.p('Content-Disposition: {report.get('disposition', 'attachment')}; filename=\"{file_name}.pdf\"');",
         "    sys.owa_util.http_header_close;",
         "    sys.wpg_docload.download_file(l_pdf);",
         "    apex_application.stop_apex_engine;",
@@ -540,9 +548,24 @@ def build_layout_guide(result: Any) -> str:
         "5. Proceso en Processing (Execute Code, PL/SQL), When Button Pressed = el botón:",
         f"   pegue {process_path or 'apex_process.sql'}",
         "",
-        "Consultas del reporte (cada una en su .sql de generado/):",
+        "Solo informativo — consultas del reporte (generado/q_*.sql):",
+        "   Ya van dentro del package del paso 2: no se pegan en APEX ni se ejecutan aparte.",
+        "   Edítelas solo para cambiar el SQL; después Compile y vuelva a ejecutar el package.",
+        "   De dónde sale el valor de cada :BIND:",
     ]
-    for name, query in definition["queries"].items():
-        binds = ", ".join(f":{b}" for b in query["binds"]) or "sin binds"
-        lines.append(f"   {name:<14} {query['file']}  ({binds})")
+    items = {p["name"].upper(): p["item"] for p in definition["parameters"]}
+    owners = {column.upper(): name for name, query in definition["queries"].items()
+              for column in query.get("columns", []) if column}
+    width = max((len(query["file"]) for query in definition["queries"].values()), default=0)
+    for query in definition["queries"].values():
+        sources = []
+        for bind in query["binds"]:
+            if bind.upper() in items:
+                sources.append(f":{bind} = Page Item {items[bind.upper()]}")
+            elif bind in query.get("refs", []):
+                owner = owners.get(bind.upper())
+                sources.append(f":{bind} = columna de {owner or 'otra consulta'} (fila actual; lo pone el motor)")
+            else:
+                sources.append(f":{bind}")
+        lines.append(f"   {query['file']:<{width}}  " + ("; ".join(sources) or "sin binds"))
     return "\n".join(lines)

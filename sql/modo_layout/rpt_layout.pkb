@@ -34,6 +34,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
     g_binds    t_binds;
     g_scalars  t_value_map;      -- "CONSULTA.COLUMNA", parámetros y constantes
     g_loaded   t_flag_map;       -- consultas escalares ya leídas
+    g_empty    t_flag_map;       -- consultas escalares sin filas: sus fórmulas no se calculan
     g_row      t_value_map;      -- fila actual de una tabla de datos
     g_sums     t_value_map;      -- totales de la tabla de datos actual
     -- Código convertido de Oracle Reports (p_model).
@@ -358,8 +359,10 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         END LOOP;
         DBMS_SQL.CLOSE_CURSOR(l_cursor);
         IF l_found THEN
+            g_empty.DELETE(p_name);
             on_row(p_name, l_row);
         ELSE
+            g_empty(p_name) := TRUE;
             l_row.DELETE;
             FOR i IN 1 .. l_count LOOP
                 l_row(UPPER(l_desc(i).col_name)) := text_value(NULL);
@@ -404,6 +407,13 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         EXCEPTION
             WHEN OTHERS THEN
                 g_busy.DELETE(p_name);
+                IF l_formula.get_string('q') IS NOT NULL AND g_empty.EXISTS(l_formula.get_string('q')) THEN
+                    -- Como Reports: un grupo sin filas no se imprime ni calcula sus fórmulas
+                    -- (con todas sus columnas en NULL, una fórmula como TO_DATE(...) fallaría).
+                    g_ctx(p_name) := l;
+                    g_fresh(p_name) := TRUE;
+                    RETURN l;
+                END IF;
                 IF SQLCODE = -20736 THEN
                     RAISE;
                 END IF;
@@ -1097,6 +1107,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         g_binds   := NVL(p_binds, t_binds());
         g_scalars.DELETE;
         g_loaded.DELETE;
+        g_empty.DELETE;
         g_row.DELETE;
         g_ctx.DELETE;
         g_fresh.DELETE;

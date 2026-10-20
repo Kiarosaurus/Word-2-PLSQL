@@ -10,7 +10,7 @@ begin
     sys.htp.init;
     sys.owa_util.mime_header('application/pdf', false);
     sys.htp.p('Content-Length: ' || dbms_lob.getlength(l_pdf));
-    sys.htp.p('Content-Disposition: inline; filename="estado_cuenta.pdf"');
+    sys.htp.p('Content-Disposition: attachment; filename="estado_cuenta.pdf"');
     sys.owa_util.http_header_close;
     sys.wpg_docload.download_file(l_pdf);
     apex_application.stop_apex_engine;

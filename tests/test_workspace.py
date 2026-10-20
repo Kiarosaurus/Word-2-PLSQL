@@ -12,10 +12,14 @@ from corporate_report_compiler.cli import main
 from corporate_report_compiler.compiler import compile_project, validate_project
 from corporate_report_compiler.gui import default_output
 from corporate_report_compiler.workspace import (
+    change_page,
+    current_page,
     existing_page,
     files_to_replace,
     import_docx,
+    page_items,
     page_placeholder_locations,
+    rename_items,
     remove_temporary,
     temporary_files,
     workspace_outputs,
@@ -51,6 +55,68 @@ class ImportDocxTests(unittest.TestCase):
         import_docx(self.source, projects_root=self.projects, page="42", replace=True)
         self.assertEqual(existing_page(self.source, self.projects), "42")
         self.assertEqual(page_placeholder_locations(folder), [])     # las copias .bak no cuentan
+
+    def test_change_page_renames_declared_items_everywhere(self) -> None:
+        result = import_docx(self.source, projects_root=self.projects, page="30")
+        project = result.paths.project
+        compiled = compile_project(project, project.parent, process_directory=project.parent.parent)
+        self.assertTrue(compiled.valid, compiled.diagnostics.to_dict())
+        process = project.parent.parent / "apex_process.sql"
+        self.assertIn("P30_", process.read_text(encoding="utf-8"))
+        self.assertEqual(current_page(project), "30")
+        raw = json.loads(project.read_text(encoding="utf-8"))
+        raw["format_item"] = "P0_REPORT_FORMAT"                                       # página global
+        project.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+
+        change = change_page(project, "40")
+        self.assertIsNone(change.error)
+        self.assertEqual(change.old, "30")
+        self.assertTrue(all(new.startswith("P40_") for new in change.renamed.values()))
+        self.assertEqual(current_page(project), "40")
+        for path in (project, process):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("P30_", text)
+            self.assertIn("P40_", text)
+        self.assertIn("P0_", project.read_text(encoding="utf-8"))                      # formato/orientación
+        self.assertTrue(validate_project(project).valid)
+
+        self.assertIsNotNone(change_page(project, "40").error)                         # ya está en 40
+        self.assertIsNotNone(change_page(project, "abc").error)
+
+    def test_rename_items_one_by_one(self) -> None:
+        result = import_docx(self.source, projects_root=self.projects, page="30")
+        project = result.paths.project
+        items = page_items(project)
+        names = [item.item for item in items]
+        self.assertIn("P30_VDNI", names)
+        self.assertTrue(any(item.use.startswith(":F_VDNI") for item in items), items)
+        self.assertTrue(any(item.use.startswith("{{FIELD:") for item in items), items)
+
+        change = rename_items(project, {"P30_VDNI": "p30_dni", "P30_VNOM": "P31_NOMBRE"})
+        self.assertIsNone(change.error)
+        self.assertEqual(change.renamed, {"P30_VDNI": "P30_DNI", "P30_VNOM": "P31_NOMBRE"})
+        text = project.read_text(encoding="utf-8")
+        self.assertIn('"P30_DNI"', text)
+        self.assertIn('"P31_NOMBRE"', text)
+        self.assertNotIn("P30_VDNI", text)
+        self.assertTrue(validate_project(project).valid)
+
+        swap = rename_items(project, {"P30_DNI": "P31_NOMBRE", "P31_NOMBRE": "P30_DNI"})   # intercambio
+        self.assertIsNone(swap.error)
+        self.assertIn('"P31_NOMBRE"', project.read_text(encoding="utf-8"))
+
+        self.assertIn("mismo nombre", rename_items(project, {"P30_DNI": "P31_NOMBRE"}).error)
+        self.assertIn("no es un nombre", rename_items(project, {"P30_DNI": "30_DNI"}).error)
+        self.assertIn("no es un Page Item", rename_items(project, {"P99_NADA": "P99_X"}).error)
+        self.assertIn("No hay cambios", rename_items(project, {"P30_DNI": "P30_DNI"}).error)
+
+    def test_change_page_from_placeholder(self) -> None:
+        result = import_docx(self.source, projects_root=self.projects)
+        self.assertEqual(current_page(result.paths.project), "XX")
+        change = change_page(result.paths.project, "42")
+        self.assertIsNone(change.error)
+        self.assertEqual(current_page(result.paths.project), "42")
+        self.assertEqual(page_placeholder_locations(result.paths.project_dir), [])
 
     def test_temporary_files_are_listed_and_removed(self) -> None:
         import_docx(self.source, projects_root=self.projects)
@@ -199,6 +265,28 @@ class LayoutTests(unittest.TestCase):
             project.write_text(json.dumps(raw), encoding="utf-8")
             result = validate_project(project)
             self.assertIn("PROJECT-005", {item.code for item in result.diagnostics.items})
+
+
+class BoldLinesTests(unittest.TestCase):
+    def test_errors_and_where_to_fix_them_are_bold(self) -> None:
+        from corporate_report_compiler.gui import bold_lines
+
+        text = "\n".join([
+            "Página elegida: XX",                                   # 1
+            "Reemplace XX por el número de página en:",             # 2 negrita
+            "  generado/x.report.json:11  PXX_CHQ",                 # 3 negrita
+            "  (apex_process.sql se rehace al Compilar.)",          # 4 nota
+            "Page Items que deben existir en APEX:",                # 5
+            "ERROR LAYOUT-PROJECT-014 — generado/x.report.json:11", # 6 negrita
+            "parameters[1].item no es un Page Item válido.",        # 7 negrita
+            "Solución: use P42_CHQ",                                # 8 negrita
+            "",                                                     # 9
+            "WARNING LAYOUT-REPORTS-014",                           # 10
+            "Las fórmulas llaman a funciones.",                     # 11
+            "",                                                     # 12
+            "No válido: 1 error(es), 1 advertencia(s).",            # 13 negrita
+        ])
+        self.assertEqual(bold_lines(text), [2, 3, 6, 7, 8, 13])
 
 
 if __name__ == "__main__":

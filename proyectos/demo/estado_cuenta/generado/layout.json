@@ -12,7 +12,8 @@
     "id": "ESTADO_CUENTA",
     "title": "ESTADO DE CUENTA DEL ALUMNO",
     "file_name": "estado_cuenta",
-    "package": "RPT_ESTADO_CUENTA"
+    "package": "RPT_ESTADO_CUENTA",
+    "disposition": "attachment"
   },
   "parameters": [
     {

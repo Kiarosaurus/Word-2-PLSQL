@@ -156,6 +156,121 @@ def _project_items(result: CompilationResult) -> list[dict]:
     return items
 
 
+def _process_steps(button: str, process: Path | None) -> list[str]:
+    """Botón, Reload on Submit y proceso donde se pega el código APEX."""
+
+    return [
+        f"  Botón: en la región de filtros, clic derecho > Create Button. Button Name: {button};",
+        "    Behavior > Action: Submit Page. (No use Dynamic Action ni «Execute Server-side Code».)",
+        "  Página: clic en el nombre de la página (raíz del árbol) > Advanced > Reload on Submit: Always.",
+        "    Con «Only for Success» la descarga falla (el navegador espera JSON).",
+        "  Proceso: pestaña Processing > Processes > clic derecho > Create Process.",
+        "    Identification > Type: Execute Code; Source > Location: Local Database; Language: PL/SQL.",
+        "    Source > PL/SQL Code: pegue el bloque completo (botón «Copiar código APEX») o el",
+        f"    contenido de {process or 'apex_process.sql'}.",
+        f"    Server-side Condition > When Button Pressed: {button}.",
+        "    Security > Authorization Scheme: el mismo de la página.",
+        "  No agregue Branches después del proceso: la descarga termina la petición.",
+    ]
+
+
+def _troubleshooting(layout: bool) -> list[str]:
+    """Errores típicos al pulsar el botón y cómo resolverlos en APEX."""
+
+    lines = [
+        "SI FALLA AL PULSAR EL BOTÓN",
+        "-" * 27,
+        "  «Session state protection violation ... protected page item P<n>_X»",
+        "  (APEX.SESSION_STATE.ITEM_VALUE_PROTECTION):",
+        "    Submit Page envía TODOS los items de la página, no solo los del reporte. APEX rechaza el envío",
+        "    (antes de ejecutar el proceso) si un item protegido cambió de valor en el navegador después de",
+        "    cargar la página: Dynamic Action, Set Value, JavaScript, cascada de LOV... Según el tipo del item:",
+        "    - Hidden: Settings > Value Protected: Off.",
+        "    - Display Only: Settings > Send on Page Submit: No (si el servidor no necesita su valor).",
+        "    - Otros (Text Field, Select List...): Security > Session State Protection: Unrestricted.",
+        "    Repítalo con cada item que nombre el error. Si el valor sirve para restringir datos (por",
+        "    ejemplo, el código del usuario), no quite la protección: calcúlelo en el servidor",
+        "    (Computation o proceso Before Header) para que no cambie en el navegador.",
+    ]
+    if layout:
+        lines += [
+            "  «PLS-00302: component 'TXT' (o NUM, SET_NUM...) must be declared» al instalar el package:",
+            "    RPT_LAYOUT instalado es anterior a esta versión de la herramienta. Vuelva a ejecutar",
+            "    sql\\modo_layout (rpt_pdf.pks, rpt_pdf.pkb, rpt_layout.pks, rpt_layout.pkb) y luego el package.",
+            "  «PLS-00201: identifier ... must be declared» al pulsar el botón o al instalar el package:",
+            "    falta el package del reporte o una función de la base de datos que usan las fórmulas.",
+        ]
+    return lines
+
+
+def _download_button(result: CompilationResult) -> str:
+    report = (result.definition or {}).get("report", {})
+    return "DESCARGAR" if result.kind == "layout" else f"DOWNLOAD_{report.get('id') or 'REPORTE'}"
+
+
+def build_paste_instructions(result: CompilationResult, code: str) -> str:
+    """Qué hacer con el código recién copiado: dónde pegarlo en APEX y qué debe existir antes."""
+
+    layout = result.kind == "layout"
+    package = ((result.definition or {}).get("report", {}).get("package") or "rpt_<reporte>").lower()
+    process = expected_artifact(result, "apex_process.sql")
+    items = [item for item in _project_items(result) if not item["item"].startswith("P0_")]
+    pages = sorted({_page_of(item["item"]) for item in items})
+    page = ", ".join(pages) if pages else "<la página del reporte>"
+    button = _download_button(result)
+    lines = [
+        "CÓDIGO APEX COPIADO AL PORTAPAPELES",
+        "=" * 35,
+        f"Proyecto: {result.project_path}",
+        f"Se copió el bloque PL/SQL del proceso ({len(code.splitlines())} líneas). Va en un Process de la "
+        f"página {page}.",
+        "",
+        "ANTES DE PEGARLO (si aún no lo hizo)",
+        "-" * 36,
+    ]
+    if layout:
+        package_file = expected_artifact(result, f"{package}.sql")
+        lines += [
+            "  1. Motor común RPT_PDF y RPT_LAYOUT instalados en el parsing schema (una sola vez):",
+            "     @sql\\modo_layout\\install.sql, o los 4 archivos de sql\\modo_layout en SQL Scripts.",
+            f"  2. Package del reporte {package.upper()} instalado y VALID. Ejecútelo cada vez que compile:",
+            f"     {package_file or package + '.sql'}",
+            "     (SQL Workshop > SQL Scripts > Upload > Run, o F5 en SQL Developer). El proceso lo llama:",
+            "     sin él, APEX muestra «PLS-00201: identifier must be declared».",
+            "     El package se genera al pulsar Compilar, no con Validar.",
+        ]
+    else:
+        lines += [
+            "  1. Package común PKG_CORPORATE_REPORTS instalado en el parsing schema (una sola vez):",
+            "     sql\\modo_simple\\pkg_corporate_reports.sql en SQL Workshop > SQL Scripts > Upload > Run.",
+        ]
+    lines.append(f"  {3 if layout else 2}. Page Items creados en la página {page} con estos nombres exactos:")
+    lines += [f"       {item['item']}" for item in items] or ["       (ninguno: el reporte no tiene filtros)"]
+    global_items = [item for item in _project_items(result) if item["item"].startswith("P0_")]
+    if global_items:
+        lines.append(f"  {4 if layout else 3}. En la Global Page (página 0), listas de selección:")
+        lines += [f"       {item['item']}  (valores {item['mask']})" for item in global_items]
+    lines += [
+        "",
+        f"DÓNDE PEGARLO (Page Designer de la página {page})",
+        "-" * 46,
+        *_process_steps(button, process),
+        "",
+        "PROBAR",
+        "-" * 6,
+        "  Ejecute la página, complete los filtros y pulse el botón: debe descargarse el "
+        + ("PDF." if layout else "PDF (o el XLSX si eligió ese formato)."),
+        "  Si cambia el Word o el proyecto: Compilar, "
+        + ("volver a ejecutar el package y " if layout else "")
+        + "volver a copiar y pegar este código.",
+        "",
+        *_troubleshooting(layout),
+        "",
+        "La guía completa (Global Page, tipos de item, verificación): botón «Instrucciones APEX detalladas» de arriba.",
+    ]
+    return "\n".join(lines)
+
+
 def build_detailed_instructions(result: CompilationResult) -> str:
     """Instrucciones detalladas para publicar el reporte en APEX 24.2, según el modo."""
 
@@ -267,27 +382,17 @@ def build_detailed_instructions(result: CompilationResult) -> str:
         lines.append("  El nombre del item debe ser EXACTAMENTE el indicado: el proceso lo lee por nombre.")
     else:
         lines.append("  Ninguno: el reporte no tiene filtros.")
+    lines += ["", "PASO 5. BOTÓN Y PROCESO (misma página)", "-" * 38]
+    lines += _process_steps(button, process)
     lines += [
-        "",
-        "PASO 5. BOTÓN Y PROCESO (misma página)",
-        "-" * 38,
-        f"  Botón: en la región de filtros, clic derecho > Create Button. Button Name: {button};",
-        "    Behavior > Action: Submit Page. (No use Dynamic Action ni «Execute Server-side Code».)",
-        "  Página: clic en el nombre de la página (raíz del árbol) > Advanced > Reload on Submit: Always.",
-        "    Con «Only for Success» la descarga falla (el navegador espera JSON).",
-        "  Proceso: pestaña Processing > Processes > clic derecho > Create Process.",
-        "    Identification > Type: Execute Code; Source > Location: Local Database; Language: PL/SQL.",
-        "    Source > PL/SQL Code: pegue el bloque completo (botón «Copiar código APEX» de esta ventana) o el",
-        f"    contenido de {process or 'apex_process.sql'}.",
-        f"    Server-side Condition > When Button Pressed: {button}.",
-        "    Security > Authorization Scheme: el mismo de la página.",
-        "  No agregue Branches después del proceso: la descarga termina la petición.",
         "",
         "PASO 6. PROBAR",
         "-" * 14,
         "  Ejecute la página, complete los filtros y pulse el botón: debe descargarse el "
         + ("PDF." if layout else "PDF (y el XLSX si eligió formato)."),
         "  Pruebe filtros vacíos, uno que no devuelva filas y un usuario sin permiso.",
+        "",
+        *_troubleshooting(layout),
         "",
         "LO QUE NO SE SUBE A APEX",
         "-" * 24,

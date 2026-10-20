@@ -80,6 +80,38 @@ class ApexGuideTests(unittest.TestCase):
         self.assertIn("P71_COD_ALUMNO", layout)
         self.assertIn("rpt_estado_cuenta.build(", process_code(result))
 
+    def test_paste_instructions_say_where_the_copied_code_goes(self) -> None:
+        from corporate_report_compiler.apex_guide import build_paste_instructions, process_code
+
+        simple_result = validate_project(EXAMPLE)
+        simple = build_paste_instructions(simple_result, process_code(simple_result))
+        for expected in ("Process de la página 70", "PKG_CORPORATE_REPORTS", "P70_DNI", "P0_REPORT_FORMAT",
+                         "Create Process", "When Button Pressed: DOWNLOAD_ENTIDADES", "Reload on Submit: Always"):
+            self.assertIn(expected, simple)
+        self.assertNotIn("RPT_LAYOUT", simple)
+
+        layout_project = ROOT / "proyectos" / "demo" / "estado_cuenta" / "generado" / "estado_cuenta.report.json"
+        layout_result = validate_project(layout_project)
+        layout = build_paste_instructions(layout_result, process_code(layout_result))
+        for expected in ("Process de la página 71", "RPT_PDF y RPT_LAYOUT", "rpt_estado_cuenta.sql",
+                         "P71_COD_ALUMNO", "When Button Pressed: DESCARGAR", "volver a ejecutar el package"):
+            self.assertIn(expected, layout)
+
+    def test_guides_explain_session_state_protection_errors(self) -> None:
+        from corporate_report_compiler.apex_guide import (
+            build_detailed_instructions, build_paste_instructions, process_code)
+
+        layout_project = ROOT / "proyectos" / "demo" / "estado_cuenta" / "generado" / "estado_cuenta.report.json"
+        for project in (EXAMPLE, layout_project):
+            result = validate_project(project)
+            for guide in (build_detailed_instructions(result), build_paste_instructions(result, process_code(result))):
+                for expected in ("SESSION_STATE.ITEM_VALUE_PROTECTION", "Value Protected: Off",
+                                 "Send on Page Submit: No", "Session State Protection: Unrestricted"):
+                    self.assertIn(expected, guide)
+        layout = build_detailed_instructions(validate_project(layout_project))
+        self.assertIn("PLS-00302", layout)
+        self.assertIn("sql\\modo_layout (rpt_pdf.pks", layout)
+
     def test_default_output_drops_report_suffix(self) -> None:
         self.assertEqual(default_output(Path("C:/p/ventas.report.json")), Path("C:/p/build/ventas"))
 

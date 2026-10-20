@@ -58,6 +58,7 @@ Tablas de datos (una por cada bloque repetitivo del original):
 Tablas de maquetación (cuadrículas, recuadros, bandas, el resumen final, el encabezado y el pie):
 - Cualquier tabla sin {{COLUMN:}}. Use bordes por celda: negro para líneas visibles, BLANCO o "sin borde" para separaciones invisibles. Rellenos de color permitidos.
 - Se permite combinar celdas en HORIZONTAL. Prohibido combinar en vertical y anidar tablas.
+- Prohibidas las tablas flotantes (ajuste de texto "Alrededor" / posición absoluta): cada tabla va en el orden del documento, una debajo de otra, en el lugar donde debe aparecer.
 - Cada fila debe ocupar todas las columnas de la tabla.
 
 Texto:
