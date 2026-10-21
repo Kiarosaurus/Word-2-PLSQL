@@ -1255,14 +1255,16 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
 
         g_left  := l_page.get_number('ml');
         g_width := l_page.get_number('w') - g_left - l_page.get_number('mr');
+        g_page := NULL; g_pages := NULL;          -- {{PAGE}} solo tiene sentido al dibujar encabezado y pie
+        -- El ajuste automático mide texto también al calcular la altura de encabezado y pie.
+        -- Las métricas de fuente de RPT_PDF deben estar listas antes de blocks_height.
+        rpt_pdf.new_document(p_landscape => l_page.get_number('w') > l_height);
         l_header_h := blocks_height(l_header);
         l_footer_h := blocks_height(l_footer);
         g_top   := GREATEST(l_page.get_number('mt'), l_page.get_number('hd') + l_header_h);
         g_limit := LEAST(l_height - l_page.get_number('mb'), l_height - l_page.get_number('fd') - l_footer_h);
 
-        rpt_pdf.new_document(p_landscape => l_page.get_number('w') > l_height);
         g_y := g_top;
-        g_page := NULL; g_pages := NULL;          -- {{PAGE}} solo tiene sentido en encabezado y pie
         blocks(l_layout.get_array('body'), TRUE);
 
         g_pages := rpt_pdf.page_count;
