@@ -255,6 +255,21 @@ class _Reader:
                     # Fila de grupo: sus datos cambian con cada grupo, como una columna.
                     run["t"] = re.sub(r"\{\{\s*FIELD\s*:\s*" + re.escape(query) + r"\.", "{{COLUMN:" + query + ".",
                                       run["t"], flags=re.IGNORECASE)
+                    if self.model is not None:
+                        def group_total(match: re.Match[str]) -> str:
+                            name = match.group(1).upper()
+                            column = self.model.columns.get(name)
+                            if column is None or column.kind != "summary" or column.function not in (None, "sum"):
+                                return match.group(0)
+                            source = self.model.columns.get(column.source or "")
+                            if source is None or source.query != query:
+                                return match.group(0)
+                            return "{{SUM:" + query + "." + source.name + (match.group(2) or "") + "}}"
+
+                        run["t"] = re.sub(
+                            r"\{\{COLUMN:" + re.escape(query) + r"\.([A-Z][A-Z0-9_$#]*)(\|[^{}|]+)?\}\}",
+                            group_total, run["t"], flags=re.IGNORECASE,
+                        )
                 if run["t"].count("{{") != run["t"].count("}}"):
                     self.diagnostics.error(
                         "LAYOUT-TOKEN-007",
@@ -528,6 +543,25 @@ class _Reader:
             # consultas, la revisión de marcadores lo informa (LAYOUT-TOKEN-006).
             bodies.append(index)
             queries.append(next((query for kind, query, _c in refs[index] if kind == "COLUMN" and query), None))
+        inferred_groups: dict[int, list[str]] = {}
+        if self.model is not None and len(bodies) > 1 and len(set(queries)) == 1 and queries[0]:
+            # Oracle Reports coloca una fila por nivel (G_CTA2, G_CTA3, ...)
+            # antes del detalle. Son rupturas de grupo, no cuatro recorridos de Q_1.
+            levels: list[str] = []
+            group_order = list(self.model.groups)
+            for index in bodies:
+                primary = next((column for kind, _query, column in refs[index]
+                                if kind == "COLUMN" and column in self.model.columns
+                                and self.model.columns[column].kind != "summary"), None)
+                levels.append(self.model.columns[primary].group.upper() if primary and self.model.columns[primary].group else None)
+            positions = [group_order.index(group) if group in group_order else -1 for group in levels]
+            if all(position >= 0 for position in positions) and positions == sorted(set(positions)):
+                keys: list[str] = []
+                for index, group in zip(bodies[:-1], levels[:-1]):
+                    keys.extend(key for key in self.model.groups[group] if key not in keys)
+                    inferred_groups[index] = list(keys)
+                bodies = bodies[-1:]
+                queries = queries[-1:]
         assignment: list[tuple[int, str]] = []
         for index, row_refs in enumerate(refs):
             if index in bodies:
@@ -563,6 +597,11 @@ class _Reader:
             header = [i for i, (owner, zone) in enumerate(assignment) if owner == section and zone == "data-header"]
             seen_group = False
             for index in header:
+                if index in inferred_groups:
+                    seen_group = True
+                    assignment[index] = (section, "data-group")
+                    groups[index] = inferred_groups[index]
+                    continue
                 own = [column for kind, q, column in refs[index] if kind in {"FIELD", "COLUMN"} and q == query and column]
                 if own:
                     seen_group = True

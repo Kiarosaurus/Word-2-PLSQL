@@ -51,7 +51,7 @@ from .project import (
 LAYOUT_SCHEMA = "corporate-layout-project/1.0"
 IDENT = re.compile(r"^[A-Z][A-Z0-9_$#]{0,29}$")
 PARAMETER_TYPES = {"VARCHAR2", "NUMBER", "DATE"}
-ALLOWED_KEYS = {"schema", "report_id", "template", "title", "file_name", "package", "parameters", "queries", "constants",
+ALLOWED_KEYS = {"schema", "report_id", "template", "title", "file_name", "package", "parameters", "queries", "constants", "visibility",
                 "reports_model", "reports_code", "disposition"}
 # Cómo entrega APEX el PDF: attachment = se descarga con su nombre; inline = se abre en el navegador
 # (Chrome guarda entonces «wwv_flow.accept» en vez del nombre, porque la página vino de un submit).
@@ -70,6 +70,7 @@ class LayoutProject:
     parameters: list[dict[str, Any]]
     queries: dict[str, dict[str, Any]]           # nombre -> {file, path, sql, binds}
     constants: dict[str, str] = field(default_factory=dict)
+    visibility: dict[str, dict[str, Any]] = field(default_factory=dict)
     reports: ReportsPlan | None = None           # código convertido de Oracle Reports
     disposition: str = "attachment"
 
@@ -155,8 +156,16 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
         if kind == "DATE" and not mask:
             diagnostics.error("LAYOUT-PROJECT-016", f"parameters[{index}] es DATE y requiere format_mask.")
         if name:
+            default = entry.get("default")
+            if default is not None and kind == "NUMBER":
+                if isinstance(default, bool) or not isinstance(default, (int, float)):
+                    diagnostics.error("LAYOUT-PROJECT-017", f"parameters[{index}].default debe ser numérico.")
+                    default = None
+            elif default is not None:
+                diagnostics.error("LAYOUT-PROJECT-017", f"parameters[{index}].default solo admite NUMBER.")
+                default = None
             parameters.append({"name": name, "item": item, "type": kind, "format_mask": mask,
-                               "required": bool(entry.get("required", False))})
+                               "required": bool(entry.get("required", False)), **({"default": default} if default is not None else {})})
     parameter_names = {entry["name"] for entry in parameters}
 
     queries: dict[str, dict[str, Any]] = {}
@@ -217,8 +226,42 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
         for item in template_diagnostics.items:
             (diagnostics.error if item.severity == "ERROR" else diagnostics.warning)(
                 item.code, item.message, location=item.location)
+    visibility: dict[str, dict[str, Any]] = {}
+    raw_visibility = raw.get("visibility") or {}
+    if not isinstance(raw_visibility, dict):
+        diagnostics.error("LAYOUT-PROJECT-050", "'visibility' debe ser un objeto por consulta.")
+        raw_visibility = {}
+    for raw_query, config in raw_visibility.items():
+        query = str(raw_query).upper()
+        if model is None:
+            diagnostics.error("LAYOUT-PROJECT-050", "'visibility' requiere reports_model para calcular sus columnas.")
+            break
+        groups = config.get("all_any") if isinstance(config, dict) else None
+        if query not in queries or not isinstance(groups, list) or not groups or any(
+                not isinstance(group, list) or not group for group in groups):
+            diagnostics.error("LAYOUT-PROJECT-050", f"visibility.{raw_query} requiere all_any con grupos de columnas.")
+            continue
+        normalized: list[list[str]] = []
+        for group in groups:
+            names = [str(name).upper() for name in group]
+            for name in names:
+                if not IDENT.fullmatch(name) or (model is not None and
+                    (name not in model.columns or model.columns[name].query != query)):
+                    diagnostics.error("LAYOUT-PROJECT-051", f"visibility.{raw_query}: columna desconocida {name}.")
+            normalized.append(names)
+        visibility[query] = {"all_any": normalized, "hide_empty_groups": bool(config.get("hide_empty_groups", False))}
+        if template is not None:
+            tables = [block for block in template.layout["body"] if block.get("k") == "D" and block.get("q") == query]
+            if not tables:
+                diagnostics.error("LAYOUT-PROJECT-052", f"visibility.{raw_query} no tiene tabla de datos.")
+            for block in tables:
+                block["vis"] = normalized
+                if visibility[query]["hide_empty_groups"]:
+                    block["vg"] = True
     if template is not None and model is not None:
-        reports_plan = plan_conversion(model, {c for columns in template.queries.values() for c in columns})
+        used = {c for columns in template.queries.values() for c in columns}
+        used.update(name for config in visibility.values() for group in config["all_any"] for name in group)
+        reports_plan = plan_conversion(model, used)
         _check_reports_plan(reports_plan, template, queries, parameter_names | set(constants), diagnostics)
     if template is not None:
         needed = reports_plan.queries if reports_plan is not None else set()
@@ -235,7 +278,7 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
     if diagnostics.has_errors or report_id is None or template_path is None or package is None:
         return None, template
     return LayoutProject(path, report_id, template_path, title, file_name, package, parameters, queries, constants,
-                         reports_plan, disposition), template
+                         visibility, reports_plan, disposition), template
 
 
 def _check_reports_plan(plan: ReportsPlan, template: LayoutTemplate, queries: dict[str, Any], known: set[str],
@@ -414,7 +457,10 @@ def build_package(definition: dict[str, Any]) -> str:
     binds = []
     for p in parameters:
         function = {"VARCHAR2": "bind_text", "NUMBER": "bind_number", "DATE": "bind_date"}[p["type"]]
-        binds.append(f"rpt_layout.{function}('{p['name']}', {_param_name(p['name'])})")
+        value = _param_name(p['name'])
+        if "default" in p:
+            value = f"NVL({value}, {p['default']})"
+        binds.append(f"rpt_layout.{function}('{p['name']}', {value})")
     bind_list = ",\n                ".join(binds)
     lines += [
         "        RETURN rpt_layout.render(",

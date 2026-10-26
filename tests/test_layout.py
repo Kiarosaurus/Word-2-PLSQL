@@ -90,6 +90,42 @@ class LayoutReaderTests(unittest.TestCase):
         self.assertEqual(label["b"]["r"][1], "FFFFFF")
         self.assertNotIn("t", label["b"])
 
+    def test_reports_hierarchy_uses_one_detail_pass_and_group_subtotals(self) -> None:
+        project = ROOT / "proyectos" / "FCR118_E" / "generado" / "FCR118_E.report.json"
+        result = validate_project(project)
+        self.assertTrue(result.valid, result.diagnostics.to_dict())
+        tables = [block for block in result.definition["layout"]["body"] if block["k"] == "D"]
+        self.assertEqual(len(tables), 1)
+        table = tables[0]
+        self.assertEqual([block["k"] for block in result.definition["layout"]["header"]], ["G", "G"])
+        self.assertEqual(len(result.definition["layout"]["header"][1]["rs"]), 2)
+        self.assertEqual(table["vis"], [
+            ["MOV_CAR", "MOV_ABO", "CF_ACU_CAR_ANT", "CF_ACU_ABO_ANT"],
+            ["CF_SALDO_INI8", "CF_SALDO_FIN8"],
+        ])
+        self.assertTrue(table["vg"])
+        self.assertEqual(
+            [row["g"] for row in table["hd"]],
+            [
+                ["NORDEN", "CTA2"],
+                ["NORDEN", "CTA2", "CTA3"],
+                ["NORDEN", "CTA2", "CTA3", "CTA4"],
+            ],
+        )
+        for row in table["hd"]:
+            subtotal = row["cs"][1]["ps"][0]["ln"][0][0]["t"]
+            self.assertEqual(subtotal, "{{SUM:Q_1.CF_ACU_CAR_ANT|999,999,999.99}}")
+        self.assertEqual(table["bd"]["cs"][0]["sp"], 2)
+        self.assertEqual(table["bd"]["cs"][0]["ps"][0]["ln"][0][0]["t"], "{{COLUMN:Q_1.CTA8}}")
+        self.assertIn("{{FIELD:Q_1.CF_UTI_PAS", str(result.definition["layout"]["body"]))
+        self.assertNotIn("CS_UTI_PAS", result.definition["constants"])
+        self.assertEqual(
+            {p["name"]: p["default"] for p in result.definition["parameters"] if "default" in p},
+            {"NUMERO1": 303, "NUMERO2": 306, "NUMERO3": 63},
+        )
+        self.assertIn("CF_SALDO_INI8", result.definition["reports"]["model"]["formulas"])
+        self.assertIn("CF_SALDO_FIN8", result.definition["reports"]["model"]["formulas"])
+
     def test_simple_templates_are_not_layout(self) -> None:
         self.assertFalse(is_layout_docx(ROOT / "templates" / "entidades_portrait.docx"))
 

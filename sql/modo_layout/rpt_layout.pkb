@@ -13,6 +13,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
     TYPE t_flag_map  IS TABLE OF BOOLEAN INDEX BY VARCHAR2(128);
     TYPE t_name_map  IS TABLE OF VARCHAR2(128) INDEX BY VARCHAR2(128);
     TYPE t_rows      IS TABLE OF t_value_map INDEX BY PLS_INTEGER;     -- filas leídas de una tabla de datos
+    TYPE t_row_flags IS TABLE OF BOOLEAN INDEX BY PLS_INTEGER;
     TYPE t_num_map   IS TABLE OF NUMBER INDEX BY VARCHAR2(4000);       -- subtotales por grupo
     TYPE t_keys      IS TABLE OF VARCHAR2(4000) INDEX BY PLS_INTEGER;
     -- Total acumulado fila a fila (numeración y acumulados de Reports).
@@ -962,6 +963,29 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         RETURN l_key;
     END group_key;
 
+    -- Cada lista exige al menos una columna distinta de cero; todas las listas
+    -- deben cumplirse. La fila oculta conserva su aporte a los totales.
+    FUNCTION visible_row(p_rules IN JSON_ARRAY_T, p_row IN t_value_map) RETURN BOOLEAN IS
+        l_group JSON_ARRAY_T;
+        l_name  VARCHAR2(128);
+        l_any   BOOLEAN;
+    BEGIN
+        IF p_rules IS NULL THEN RETURN TRUE; END IF;
+        FOR i IN 0 .. p_rules.get_size - 1 LOOP
+            l_group := TREAT(p_rules.get(i) AS JSON_ARRAY_T);
+            l_any := FALSE;
+            FOR j IN 0 .. l_group.get_size - 1 LOOP
+                l_name := UPPER(l_group.get_string(j));
+                IF p_row.EXISTS(l_name) AND NVL(as_number(p_row(l_name)), 0) <> 0 THEN
+                    l_any := TRUE;
+                    EXIT;
+                END IF;
+            END LOOP;
+            IF NOT l_any THEN RETURN FALSE; END IF;
+        END LOOP;
+        RETURN TRUE;
+    END visible_row;
+
     -- Fila que se repite: si no cabe, salta de página y repite los encabezados.
     PROCEDURE data_row(p_table IN JSON_OBJECT_T, p_row IN JSON_OBJECT_T, p_header IN JSON_ARRAY_T,
                        p_follow_height IN NUMBER DEFAULT 0) IS
@@ -996,6 +1020,10 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         l_key    VARCHAR2(261);
         l_zero   t_value;
         l_rows   t_rows;
+        l_visible t_row_flags;
+        l_vcounts t_num_map;
+        l_rules  JSON_ARRAY_T := CASE WHEN p_table.has('vis') THEN p_table.get_array('vis') END;
+        l_show   BOOLEAN;
         l_n      PLS_INTEGER := 0;
         l_totals t_value_map;
         l_gsums  t_num_map;
@@ -1056,7 +1084,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
                 l_page_header.append(l_row);
             END IF;
         END LOOP;
-        l_buffer := l_hide OR p_table.has('hs') OR l_groups.get_size > 0;
+        l_buffer := l_hide OR p_table.has('hs') OR l_groups.get_size > 0 OR l_rules IS NOT NULL;
         g_sums.DELETE;
         l_zero.kind := 'N'; l_zero.n := 0;
         FOR i IN 0 .. l_sums.get_size - 1 LOOP
@@ -1093,11 +1121,19 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
             read_row(l_cursor, l_desc, l_count, NULL, g_row);
             CONTINUE WHEN NOT matches(l_query, g_row);
             take_row;
+            l_show := visible_row(l_rules, g_row);
             IF l_buffer THEN
                 l_n := l_n + 1;
                 l_rows(l_n) := g_row;
+                l_visible(l_n) := l_show;
+                IF l_show AND p_table.has('vg') THEN
+                    FOR j IN 0 .. l_groups.get_size - 1 LOOP
+                        l_gkey := j || CHR(2) || group_key(g_row, TREAT(l_groups.get(j) AS JSON_OBJECT_T).get_array('g'));
+                        l_vcounts(l_gkey) := CASE WHEN l_vcounts.EXISTS(l_gkey) THEN l_vcounts(l_gkey) ELSE 0 END + 1;
+                    END LOOP;
+                END IF;
             ELSE
-                data_row(p_table, l_body, l_header);
+                IF l_show THEN data_row(p_table, l_body, l_header); END IF;
             END IF;
         END LOOP;
         DBMS_SQL.CLOSE_CURSOR(l_cursor);
@@ -1119,23 +1155,25 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
                     IF l_new OR NOT l_prev.EXISTS(j) OR l_prev(j) <> l_gkey THEN
                         l_new := TRUE;                -- cambia este grupo y los de adentro
                         l_prev(j) := l_gkey;
-                        FOR i IN 0 .. l_sums.get_size - 1 LOOP   -- subtotales del grupo
-                            l_key := UPPER(l_sums.get_string(i));
-                            IF l_totals.EXISTS(l_key) THEN
-                                g_sums(l_key).n := CASE WHEN l_gsums.EXISTS(j || CHR(2) || l_key || CHR(2) || l_gkey)
-                                                        THEN l_gsums(j || CHR(2) || l_key || CHR(2) || l_gkey) ELSE 0 END;
-                            END IF;
-                        END LOOP;
-                        l_follow := table_row(p_table, l_body, 0, FALSE);
-                        FOR k IN j + 1 .. l_groups.get_size - 1 LOOP
-                            l_follow := l_follow + table_row(
-                                p_table, TREAT(l_groups.get(k) AS JSON_OBJECT_T), 0, FALSE);
-                        END LOOP;
-                        data_row(p_table, l_row, l_header, l_follow);
-                        g_sums := l_totals;
+                        IF NOT p_table.has('vg') OR l_vcounts.EXISTS(j || CHR(2) || l_gkey) THEN
+                            FOR i IN 0 .. l_sums.get_size - 1 LOOP   -- subtotales del grupo
+                                l_key := UPPER(l_sums.get_string(i));
+                                IF l_totals.EXISTS(l_key) THEN
+                                    g_sums(l_key).n := CASE WHEN l_gsums.EXISTS(j || CHR(2) || l_key || CHR(2) || l_gkey)
+                                                            THEN l_gsums(j || CHR(2) || l_key || CHR(2) || l_gkey) ELSE 0 END;
+                                END IF;
+                            END LOOP;
+                            l_follow := table_row(p_table, l_body, 0, FALSE);
+                            FOR k IN j + 1 .. l_groups.get_size - 1 LOOP
+                                l_follow := l_follow + table_row(
+                                    p_table, TREAT(l_groups.get(k) AS JSON_OBJECT_T), 0, FALSE);
+                            END LOOP;
+                            data_row(p_table, l_row, l_header, l_follow);
+                            g_sums := l_totals;
+                        END IF;
                     END IF;
                 END LOOP;
-                data_row(p_table, l_body, l_page_header);
+                IF l_visible(r) THEN data_row(p_table, l_body, l_page_header); END IF;
             END LOOP;
         END IF;
         draw_rows(p_table, l_footer);
