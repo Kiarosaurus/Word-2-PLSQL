@@ -105,7 +105,11 @@ CREATE OR REPLACE PACKAGE BODY rpt_pdf AS
     END escape_text;
 
     -- ------------------------------------------------------------ documento
-    PROCEDURE new_document(p_landscape IN BOOLEAN DEFAULT FALSE) IS
+    PROCEDURE new_document(
+        p_landscape IN BOOLEAN DEFAULT FALSE,
+        p_width_mm  IN NUMBER DEFAULT NULL,
+        p_height_mm IN NUMBER DEFAULT NULL
+    ) IS
     BEGIN
         FOR i IN 1 .. g_page_count LOOP
             IF DBMS_LOB.ISTEMPORARY(g_pages(i)) = 1 THEN
@@ -117,7 +121,15 @@ CREATE OR REPLACE PACKAGE BODY rpt_pdf AS
         g_current    := 0;
         g_width_pt   := 210 * c_pt_per_mm;
         g_height_pt  := 297 * c_pt_per_mm;
-        IF p_landscape THEN
+        IF p_width_mm IS NOT NULL OR p_height_mm IS NOT NULL THEN
+            IF p_width_mm IS NULL OR p_height_mm IS NULL
+               OR p_width_mm NOT BETWEEN 10 AND 1000
+               OR p_height_mm NOT BETWEEN 10 AND 1000 THEN
+                RAISE_APPLICATION_ERROR(-20708, 'RPT_PDF: tamaño de página inválido.');
+            END IF;
+            g_width_pt := p_width_mm * c_pt_per_mm;
+            g_height_pt := p_height_mm * c_pt_per_mm;
+        ELSIF p_landscape THEN
             g_width_pt  := 297 * c_pt_per_mm;
             g_height_pt := 210 * c_pt_per_mm;
         END IF;

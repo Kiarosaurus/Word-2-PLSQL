@@ -171,7 +171,11 @@ def convert_unit(name: str, code: str, model: ReportsModel, *, datatype: str = "
             lower = text.lower()
             following = _significant(items, i + 1)
             next_text = items[following][1] if following is not None else ""
-            if lower == "srw" and next_text == ".":
+            if previous == "@":
+                # En FUNCION@DBLINK(...), el identificador antes de «(» es el
+                # DB link, no otra función externa.
+                pass
+            elif lower == "srw" and next_text == ".":
                 problems.append("usa el paquete SRW de Oracle Reports")
             elif previous != "." and lower in model.program_units and lower != name:
                 calls.add(lower)
@@ -313,6 +317,14 @@ def plan_conversion(model: ReportsModel, used: set[str]) -> ReportsPlan:
                 plan.pending.append(f"El total {name} usa la función {function}, que el motor no calcula.")
                 continue
             plan.summaries[name] = {"q": source.query, "s": source.name, "f": function}
+            # Un resumen del reporte sobre otro resumen del mismo ámbito se
+            # calcula una vez, no una vez por cada fila de la consulta origen.
+            if (source.kind == "summary" and function == "sum"
+                    and (column.reset or "REPORT").upper() == "REPORT"
+                    and (source.reset or "REPORT").upper() == "REPORT"
+                    and (source.function or "sum").lower() == "sum"
+                    and source.source in model.columns):
+                plan.summaries[name]["s"] = source.source
             if column.group and source.group and column.group.upper() == source.group.upper():
                 # Total en el mismo grupo que su origen: en Reports es acumulado fila a fila
                 # (por ejemplo la numeración 1, 2, 3 con sum de una columna que vale 1).

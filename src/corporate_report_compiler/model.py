@@ -52,6 +52,8 @@ class TemplateModel:
     border_width: float
     border_color: str
     footer_style: TextStyle
+    page_width_mm: float = 210.0
+    page_height_mm: float = 297.0
 
 
 @dataclass(frozen=True, slots=True)

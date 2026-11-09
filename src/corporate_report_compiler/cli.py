@@ -86,6 +86,18 @@ def build_parser() -> argparse.ArgumentParser:
     temporary.add_argument("--projects-dir", type=Path, help="Carpeta de proyectos (por defecto proyectos/ del compilador).")
     temporary.add_argument("--borrar", action="store_true", help="Borra todo lo listado.")
     temporary.add_argument("--debug", action="store_true", help="Muestra traceback ante un fallo interno.")
+    rdf = commands.add_parser("studio-rdf", help="Crea proyecto y Word inicial desde un RDF.")
+    rdf.add_argument("--rdf", required=True, type=Path)
+    rdf.add_argument("--projects-dir", type=Path, default=Path("proyectos"))
+    rdf.add_argument("--page", default="1")
+    queries = commands.add_parser("studio-queries", help="Crea proyecto y Word desde consultas SQL.")
+    queries.add_argument("--name", required=True)
+    queries.add_argument("--query", action="append", required=True, help="NOMBRE=ruta.sql; repetible")
+    queries.add_argument("--projects-dir", type=Path, default=Path("proyectos"))
+    queries.add_argument("--page", default="1")
+    preview = commands.add_parser("studio-preview", help="Genera HTML inspeccionable con datos ficticios.")
+    preview.add_argument("--project", required=True, type=Path)
+    preview.add_argument("--output", required=True, type=Path)
     return parser
 
 
@@ -195,6 +207,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:
+        if arguments.command.startswith("studio-"):
+            from .studio import create_from_rdf, create_from_queries, preview_project
+            if arguments.command == "studio-rdf":
+                payload = create_from_rdf(arguments.rdf, arguments.projects_dir, page=arguments.page)
+            elif arguments.command == "studio-queries":
+                entries = dict(entry.split("=", 1) for entry in arguments.query)
+                payload = create_from_queries(arguments.name, {name: Path(path) for name, path in entries.items()},
+                                              arguments.projects_dir, page=arguments.page)
+            else:
+                payload = preview_project(arguments.project, arguments.output)
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0 if payload.get("project") or payload.get("valid") else 1
         if arguments.command == "new":
             return _new_project(arguments)
         if arguments.command == "temporales":

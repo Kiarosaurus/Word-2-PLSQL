@@ -390,7 +390,7 @@ def _commented(text: str) -> list[str]:
     return ["--   " + line.rstrip() for line in text.strip().splitlines()]
 
 
-def _reports_query_file(name: str, model, plan) -> str:
+def _reports_query_file(name: str, model, plan, template=None) -> str:
     """q_<consulta>.sql con el SQL real de Oracle Reports y lo que el motor hace con él."""
 
     query = model.queries[name]
@@ -409,7 +409,18 @@ def _reports_query_file(name: str, model, plan) -> str:
     for note in plan.pending:
         if f"q_{name.lower()}.sql" in note:
             lines += ["--", f"-- PENDIENTE: {note}"]
-    return "\n".join(lines) + "\n" + query["sql"].rstrip() + "\n"
+    sql = query["sql"].rstrip()
+    group_keys = next((block["gf"]["g"] for block in (template.layout.get("body", []) if template else [])
+                       if block.get("k") == "D" and block.get("q") == name and "gf" in block), None)
+    if group_keys:
+        order = ", ".join(group_keys)
+        match = re.search(r"\bORDER\s+BY\b", sql, re.IGNORECASE)
+        if match:
+            sql = sql[:match.end()] + " " + order + "," + sql[match.end():]
+        else:
+            sql += "\nORDER BY " + order
+        lines.append("-- GROUP_END: los comprobantes se ordenan antes del detalle para imprimir sus totales y firmas juntos.")
+    return "\n".join(lines) + "\n" + sql + "\n"
 
 
 def _reports_code_file(unit, model) -> str:
@@ -431,16 +442,62 @@ def _reports_code_file(unit, model) -> str:
 PARAMETER_TYPES_FROM_REPORTS = {"number": "NUMBER", "date": "DATE"}
 
 
+def _reports_visibility(model, query_names: set[str]) -> dict[str, dict]:
+    """Recognize simple Oracle Reports filters that hide rows when values are all zero.
+
+    Only the deepest group and its matching format trigger affect detail visibility;
+    parent group filters are handled by hide_empty_groups after the detail rows.
+    Complex PL/SQL conditions remain a manual project setting.
+    """
+
+    result: dict[str, dict] = {}
+    zero = re.compile(r"(?:NVL\s*\(\s*:([A-Z][A-Z0-9_$#]*)\s*,\s*0\s*\)|:([A-Z][A-Z0-9_$#]*))\s*=\s*0", re.I)
+    false_if = re.compile(r"\bIF\s+(.+?)\s+THEN\s+RETURN\s*\(?\s*FALSE\s*\)?\s*;", re.I | re.S)
+    for query in sorted(query_names):
+        groups = [name for name, names in model.groups.items()
+                  if any(name_ in model.columns and model.columns[name_].query == query for name_ in names)]
+        if not groups:
+            continue
+        deepest = groups[-1]
+        tests: list[list[str]] = []
+        for unit, source in model.program_units.items():
+            if unit != deepest.lower() + "groupfilter" and not unit.endswith("formattrigger"):
+                continue
+            match = false_if.search(source)
+            if match is None:
+                continue
+            condition = match.group(1)
+            names = [((item.group(1) or item.group(2)).upper()) for item in zero.finditer(condition)]
+            rest = zero.sub("", condition)
+            if not names or re.sub(r"\bAND\b|[\s()]", "", rest, flags=re.I):
+                continue
+            if any(name not in model.columns or model.columns[name].query != query
+                   or (model.columns[name].group or "").upper() != deepest for name in names):
+                continue
+            if names not in tests:
+                tests.append(names)
+        if tests:
+            result[query] = {"all_any": tests, "hide_empty_groups": len(groups) > 1}
+    return result
+
+
 def _import_layout_docx(source: Path, root: Path, *, replace: bool, page: str = PAGE_PLACEHOLDER,
                         reports: Path | None = None) -> ImportResult:
     diagnostics = Diagnostics(strict=True)
-    model, xml_path = _reports_model(reports, diagnostics)
+    paths = WorkspacePaths.for_name(root, source.stem)
+    prior: dict = {}
+    if paths.project.exists():
+        try:
+            prior = json.loads(paths.project.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            pass
+    inherited_xml = paths.generated_dir / f"{source.stem}.reports.xml"
+    model, xml_path = _reports_model(reports or (inherited_xml if inherited_xml.is_file() else None), diagnostics)
     if reports is not None and model is None:
         return ImportResult(diagnostics)
     template = read_layout_template(source, diagnostics, model)
     if template is None:
         return ImportResult(diagnostics)
-    paths = WorkspacePaths.for_name(root, source.stem)
     existing = files_to_replace(source, root, reports)
     if existing and not replace:
         for path in existing:
@@ -459,7 +516,7 @@ def _import_layout_docx(source: Path, root: Path, *, replace: bool, page: str = 
     parameter_names: set[str] = set()
     for name in sorted(query_names):
         if model is not None and name in model.queries:
-            files[name] = _reports_query_file(name, model, plan)
+            files[name] = _reports_query_file(name, model, plan, template)
             for bind in re.findall(r":([A-Za-z][A-Za-z0-9_$#]*)", model.queries[name]["sql"]):
                 if bind.upper() in model.parameters:
                     parameter_names.add(bind.upper())
@@ -475,19 +532,29 @@ def _import_layout_docx(source: Path, root: Path, *, replace: bool, page: str = 
             notes.append("Funciones de la base de datos que usan las fórmulas (deben existir en el parsing schema): "
                          + ", ".join(sorted(plan.externals)) + ".")
     constants = {}
+    plain_document = not template.data_tables and not query_names
     for name in sorted(template.fields):
         if model is not None and name in model.parameters:
+            parameter_names.add(name)
+        elif plain_document:
             parameter_names.add(name)
         else:
             constants[name] = name
     page_label = page.strip().upper() or PAGE_PLACEHOLDER
     parameters = []
     for name in sorted(parameter_names):
-        kind = PARAMETER_TYPES_FROM_REPORTS.get((model.parameters[name]["datatype"] or "").lower(), "VARCHAR2")
+        kind = (PARAMETER_TYPES_FROM_REPORTS.get((model.parameters[name]["datatype"] or "").lower(), "VARCHAR2")
+                if model is not None and name in model.parameters else "VARCHAR2")
         item_name = name[2:] if name.startswith("P_") and len(name) > 2 else name
         entry = {"name": name, "item": f"P{page_label}_{item_name}"[:128], "type": kind, "required": False}
         if kind == "DATE":
             entry["format_mask"] = "DD/MM/YYYY"
+        if kind == "NUMBER" and model is not None:
+            initial = (model.parameters[name].get("initial") or "").strip()
+            if re.fullmatch(r"[+-]?\d+", initial):
+                entry["default"] = int(initial)
+            elif re.fullmatch(r"[+-]?\d+\.\d+", initial):
+                entry["default"] = float(initial)
         parameters.append(entry)
     project = {
         "schema": "corporate-layout-project/1.0",
@@ -497,26 +564,49 @@ def _import_layout_docx(source: Path, root: Path, *, replace: bool, page: str = 
                  or re.sub(r"\s+", " ", source.stem.replace("_", " ")).strip() or "Reporte",
         "file_name": re.sub(r"[^A-Za-z0-9_-]+", "_", source.stem).strip("_") or "reporte",
         **({"reports_model": f"{paths.docx.stem}.reports.xml"} if model is not None else {}),
-        **({"reports_code": REPORTS_CODE_DIR} if code_files else {}),
+        **({"reports_code": prior.get("reports_code") or REPORTS_CODE_DIR}
+           if code_files or prior.get("reports_code") else {}),
         "parameters": parameters,
         "queries": {name: f"q_{name.lower()}.sql" for name in sorted(query_names)},
         "constants": constants,
     }
+    if model is not None:
+        project["visibility"] = _reports_visibility(model, set(template.data_tables))
+    if isinstance(prior.get("visibility"), dict):
+        project["visibility"] = {name: config for name, config in prior["visibility"].items()
+                                 if name in template.data_tables}
+    old_parameters = {p.get("name"): p for p in prior.get("parameters", []) if isinstance(p, dict)}
+    for parameter in project["parameters"]:
+        old = old_parameters.get(parameter["name"])
+        if old:
+            for key in ("item", "required", "default", "format_mask"):
+                if key in old and (key != "default" or parameter["type"] == "NUMBER"):
+                    parameter[key] = old[key]
+    for key in ("title", "file_name", "package", "disposition", "bottom_anchor"):
+        if key in prior:
+            project[key] = prior[key]
+    if isinstance(prior.get("constants"), dict):
+        for name in project["constants"]:
+            if name in prior["constants"]:
+                project["constants"][name] = prior["constants"][name]
     backups: list[Path] = []
     written: list[Path] = []
+    xml_copy_source = xml_path
     try:
         paths.generated_dir.mkdir(parents=True, exist_ok=True)
         for path in existing:
             backup = paths.generated_dir / f"{path.name}.bak"
             os.replace(path, backup)
             backups.append(backup)
+            if xml_copy_source is not None and path.resolve() == xml_copy_source.resolve():
+                xml_copy_source = backup
         if not _same_file(paths.docx, source):
             shutil.copyfile(source, paths.docx)
         written.append(paths.docx)
-        if xml_path is not None:
+        if xml_copy_source is not None:
             target = paths.generated_dir / f"{paths.docx.stem}.reports.xml"
-            if not _same_file(xml_path, target):
-                shutil.copyfile(xml_path, target)
+            if not _same_file(xml_copy_source, target):
+                shutil.copyfile(xml_copy_source, target)
             written.append(target)
         for name, content in files.items():
             query_path = paths.generated_dir / f"q_{name.lower()}.sql"
@@ -827,7 +917,7 @@ def update_docx(project_path: Path, docx_path: Path) -> DocxUpdate:
         parameter_names: set[str] = set(plan.parameters) if plan is not None else set()
         for name in sorted(needed - set(queries)):
             if model is not None and name in model.queries:
-                files[name] = _reports_query_file(name, model, plan)
+                files[name] = _reports_query_file(name, model, plan, template)
                 parameter_names |= {bind.upper() for bind in re.findall(r":([A-Za-z][A-Za-z0-9_$#]*)",
                                                                        model.queries[name]["sql"])
                                     if bind.upper() in model.parameters}

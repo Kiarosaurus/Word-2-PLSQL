@@ -141,6 +141,47 @@ def _is_xml_part(name: str, defaults: dict[str, str], overrides: dict[str, str])
     return content_type.casefold().endswith(("/xml", "+xml"))
 
 
+def _empty_word_bibliography_parts(archive: zipfile.ZipFile) -> set[str]:
+    """Recognize Word's unused bibliography store, not arbitrary custom XML."""
+    expected = {
+        "customxml/item1.xml",
+        "customxml/itemprops1.xml",
+        "customxml/_rels/item1.xml.rels",
+    }
+    names = {name.casefold(): name for name in archive.namelist()}
+    present = {name for name in names if name.startswith("customxml/")}
+    if present != expected:
+        return set()
+    try:
+        sources = archive.read(names["customxml/item1.xml"])
+        properties = archive.read(names["customxml/itemprops1.xml"])
+        relationships = archive.read(names["customxml/_rels/item1.xml.rels"])
+        document_relationships = archive.read(names["word/_rels/document.xml.rels"])
+        if any(_has_doctype(data) for data in (sources, properties, relationships, document_relationships)):
+            return set()
+        source_root = ET.fromstring(sources)
+        props_root = ET.fromstring(properties)
+        rel_root = ET.fromstring(relationships)
+        doc_rel_root = ET.fromstring(document_relationships)
+    except (KeyError, ET.ParseError, ValueError, LookupError, expat.ExpatError):
+        return set()
+    bibliography = "http://schemas.openxmlformats.org/officeDocument/2006/bibliography"
+    custom_xml = "http://schemas.openxmlformats.org/officeDocument/2006/customXml"
+    if source_root.tag != f"{{{bibliography}}}Sources" or list(source_root) or (source_root.text or "").strip():
+        return set()
+    if props_root.tag != f"{{{custom_xml}}}datastoreItem":
+        return set()
+    refs = props_root.findall(f"{{{custom_xml}}}schemaRefs/{{{custom_xml}}}schemaRef")
+    if len(refs) != 1 or refs[0].get(f"{{{custom_xml}}}uri", refs[0].get("uri")) != bibliography:
+        return set()
+    if len(rel_root) != 1 or rel_root[0].get("Target") != "itemProps1.xml" or not rel_root[0].get("Type", "").endswith("/customXmlProps"):
+        return set()
+    links = [rel for rel in doc_rel_root if rel.get("Type", "").endswith("/customXml")]
+    if len(links) != 1 or links[0].get("Target") != "../customXml/item1.xml":
+        return set()
+    return expected
+
+
 def inspect_docx_zip(path: Path, diagnostics: Diagnostics) -> ZipInspection | None:
     location = str(path)
     if path.suffix.lower() != ".docx":
@@ -171,6 +212,7 @@ def inspect_docx_zip(path: Path, diagnostics: Diagnostics) -> ZipInspection | No
     try:
         with zipfile.ZipFile(path, "r") as archive:
             infos = archive.infolist()
+            empty_bibliography = _empty_word_bibliography_parts(archive)
             if len(infos) > MAX_MEMBER_COUNT:
                 diagnostics.error(
                     "ZIP-002",
@@ -211,7 +253,7 @@ def inspect_docx_zip(path: Path, diagnostics: Diagnostics) -> ZipInspection | No
                     diagnostics.error("ZIP-009", "Se detectó una posible bomba ZIP.", location=name)
 
                 label = _prohibited_part(name)
-                if label:
+                if label and normalized not in empty_bibliography:
                     diagnostics.error(
                         "OOXML-001",
                         f"La plantilla contiene un elemento no permitido: {label}.",
@@ -266,7 +308,13 @@ def inspect_docx_zip(path: Path, diagnostics: Diagnostics) -> ZipInspection | No
                     for relationship in root.findall(f"{{{REL_NS}}}Relationship"):
                         relation_type = relationship.attrib.get("Type", "").rstrip("/").rsplit("/", 1)[-1].casefold()
                         label = PROHIBITED_RELATIONSHIP_TYPES.get(relation_type)
-                        if label:
+                        allowed_bibliography_link = (
+                            bool(empty_bibliography)
+                            and name.casefold() == "word/_rels/document.xml.rels"
+                            and relation_type == "customxml"
+                            and relationship.attrib.get("Target") == "../customXml/item1.xml"
+                        )
+                        if label and not allowed_bibliography_link:
                             diagnostics.error(
                                 "OOXML-001",
                                 f"La plantilla contiene un elemento no permitido: {label}.",

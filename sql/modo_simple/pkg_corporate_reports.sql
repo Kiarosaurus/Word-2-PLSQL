@@ -82,7 +82,9 @@ CREATE OR REPLACE PACKAGE pkg_corporate_reports AUTHID CURRENT_USER AS
         p_format                 IN VARCHAR2 DEFAULT 'PDF',
         p_orientation            IN VARCHAR2 DEFAULT 'AUTO',
         p_excluded_columns_json  IN CLOB DEFAULT NULL,
-        p_column_widths_json     IN CLOB DEFAULT NULL
+        p_column_widths_json     IN CLOB DEFAULT NULL,
+        p_page_width_mm          IN NUMBER DEFAULT 210,
+        p_page_height_mm         IN NUMBER DEFAULT 297
     );
 
 END pkg_corporate_reports;
@@ -1828,7 +1830,9 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
         p_format                 IN VARCHAR2,
         p_orientation            IN VARCHAR2,
         p_excluded_columns_json  IN CLOB,
-        p_column_widths_json     IN CLOB
+        p_column_widths_json     IN CLOB,
+        p_page_width_mm          IN NUMBER,
+        p_page_height_mm         IN NUMBER
     )
     IS
         l_context            apex_exec.t_context;
@@ -1947,8 +1951,18 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
                 );
         END CASE;
 
-        /* El contrato congelado utiliza siempre papel A4. */
-        l_paper_size := apex_data_export.c_size_a4;
+        /* El tamaño del papel se compila desde la página de Word. */
+        IF p_page_width_mm IS NULL OR p_page_height_mm IS NULL
+           OR p_page_width_mm NOT BETWEEN 10 AND 1000
+           OR p_page_height_mm NOT BETWEEN 10 AND 1000 THEN
+            raise_application_error(-20169, 'Tamaño de página fuera de 10 a 1000 mm.');
+        END IF;
+        IF ABS(LEAST(p_page_width_mm, p_page_height_mm) - 210) < 0.2
+           AND ABS(GREATEST(p_page_width_mm, p_page_height_mm) - 297) < 0.2 THEN
+            l_paper_size := apex_data_export.c_size_a4;
+        ELSE
+            l_paper_size := apex_data_export.c_size_custom;
+        END IF;
 
         l_effective_title := SUBSTRB(
             NVL(TRIM(p_title), 'Reporte'),
@@ -2866,6 +2880,9 @@ CREATE OR REPLACE PACKAGE BODY pkg_corporate_reports AS
         -- y analizar: título, campos, usuario, fecha y pie son solo del PDF.
         l_print_config := apex_data_export.get_print_config(
             p_paper_size              => l_paper_size,
+            p_units                   => apex_data_export.c_unit_millimeters,
+            p_width                   => LEAST(p_page_width_mm, p_page_height_mm),
+            p_height                  => GREATEST(p_page_width_mm, p_page_height_mm),
             p_width_units             =>
                 apex_data_export.c_width_unit_percentage,
             p_orientation             => l_orientation,

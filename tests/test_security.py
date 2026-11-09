@@ -4,6 +4,9 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from xml.etree import ElementTree as ET
+
+from docx import Document
 
 from corporate_report_compiler.diagnostics import Diagnostics
 from corporate_report_compiler.security import inspect_docx_zip
@@ -67,6 +70,22 @@ class DocxSecurityTests(unittest.TestCase):
         diagnostics = self.inspect(hostile)
         self.assertTrue(diagnostics.has_errors)
         self.assertIn("OOXML-001", {item.code for item in diagnostics.items})
+
+    def test_empty_word_bibliography_is_allowed_but_content_is_rejected(self) -> None:
+        word = self.root / "word-bibliography.docx"
+        Document().save(word)
+        with zipfile.ZipFile(word) as archive:
+            original = archive.read("customXml/item1.xml")
+        self.assertFalse(self.inspect(word).has_errors)
+
+        sources = ET.fromstring(original)
+        ET.SubElement(sources, "{http://schemas.openxmlformats.org/officeDocument/2006/bibliography}Source")
+        populated = ET.tostring(sources)
+        with_content = rewrite_zip(
+            word, self.root / "bibliography-with-content.docx",
+            replacements={"customXml/item1.xml": populated},
+        )
+        self.assertIn("OOXML-001", {item.code for item in self.inspect(with_content).items})
 
     def test_external_relationship_is_rejected(self) -> None:
         relationships = b'''<?xml version="1.0" encoding="UTF-8"?>

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+import json
 import re
 import shutil
 import tempfile
@@ -51,8 +52,8 @@ from .project import (
 LAYOUT_SCHEMA = "corporate-layout-project/1.0"
 IDENT = re.compile(r"^[A-Z][A-Z0-9_$#]{0,29}$")
 PARAMETER_TYPES = {"VARCHAR2", "NUMBER", "DATE"}
-ALLOWED_KEYS = {"schema", "report_id", "template", "title", "file_name", "package", "parameters", "queries", "constants", "visibility",
-                "reports_model", "reports_code", "disposition"}
+ALLOWED_KEYS = {"schema", "report_id", "template", "title", "file_name", "package", "parameters", "queries", "constants", "visibility", "show_empty_tables",
+                "reports_model", "reports_code", "disposition", "bottom_anchor"}
 # Cómo entrega APEX el PDF: attachment = se descarga con su nombre; inline = se abre en el navegador
 # (Chrome guarda entonces «wwv_flow.accept» en vez del nombre, porque la página vino de un submit).
 DISPOSITIONS = ("attachment", "inline")
@@ -118,8 +119,22 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
         # Funciones de Reports corregidas a mano: reemplazan a las del .rdf.
         code_dir = (path.parent / str(raw["reports_code"])).resolve()
         if code_dir.is_dir():
+            from .sources import function_spans
+
             for unit in sorted(code_dir.glob("*.sql")):
-                model.program_units[unit.stem.lower()] = unit.read_text(encoding="utf-8-sig")
+                name = unit.stem.lower()
+                override = unit.read_text(encoding="utf-8-sig")
+                original = model.program_units.get(name, "")
+                qualified_before = {span.function for span in function_spans(original) if "." in span.text}
+                bare_after = {span.function for span in function_spans(override) if "." not in span.text}
+                for function in sorted(qualified_before & bare_after):
+                    diagnostics.warning(
+                        "LAYOUT-REPORTS-016",
+                        f"La función {function} tenía prefijo de paquete o esquema en el RDF y aparece "
+                        f"sin él en {unit.name}. Verifique si se perdió al editar su DB link.",
+                        location=str(unit),
+                    )
+                model.program_units[name] = override
     title = raw.get("title")
     if not isinstance(title, str) or not title.strip() or len(title.encode("utf-8")) > 255:
         diagnostics.error("LAYOUT-PROJECT-004", "'title' es obligatorio y admite hasta 255 bytes UTF-8.")
@@ -170,8 +185,8 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
 
     queries: dict[str, dict[str, Any]] = {}
     raw_queries = raw.get("queries") or {}
-    if not isinstance(raw_queries, dict) or not raw_queries:
-        diagnostics.error("LAYOUT-PROJECT-020", "'queries' debe ser un objeto con al menos una consulta.")
+    if not isinstance(raw_queries, dict):
+        diagnostics.error("LAYOUT-PROJECT-020", "'queries' debe ser un objeto.")
         raw_queries = {}
     for raw_name, file in raw_queries.items():
         name = _ident(raw_name, f"La consulta {raw_name!r}", diagnostics, "LAYOUT-PROJECT-021")
@@ -204,6 +219,9 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
             # Reports nombra columnas que el SQL no nombra igual (NRO_SOL1, expresiones sin alias):
             # el motor usa estos nombres por posición; las columnas agregadas al final conservan su alias.
             queries[name]["columns"] = model.queries[name]["columns"]
+            if model.row_visibility.get(name):
+                queries[name]["rf"] = [{key: rule[key] for key in ("s", "op", "v", "trunc")}
+                                       for rule in model.row_visibility[name]]
 
     constants: dict[str, str] = {}
     raw_constants = raw.get("constants") or {}
@@ -258,12 +276,54 @@ def load_layout_project(path: Path, diagnostics: Diagnostics) -> tuple[LayoutPro
                 block["vis"] = normalized
                 if visibility[query]["hide_empty_groups"]:
                     block["vg"] = True
+    show_empty_tables = raw.get("show_empty_tables") or []
+    if not isinstance(show_empty_tables, list) or any(not isinstance(name, str) for name in show_empty_tables):
+        diagnostics.error("LAYOUT-PROJECT-053", "'show_empty_tables' debe ser una lista de consultas.")
+    elif template is not None:
+        for raw_query in show_empty_tables:
+            query = raw_query.strip().upper()
+            tables = [block for block in template.layout["body"] if block.get("k") == "D" and block.get("q") == query]
+            if not tables:
+                diagnostics.error("LAYOUT-PROJECT-054", f"show_empty_tables: {raw_query} no tiene tabla de datos.")
+            for block in tables:
+                block.pop("he", None)
     if template is not None and model is not None:
         used = {c for columns in template.queries.values() for c in columns}
         used.update(name for config in visibility.values() for group in config["all_any"] for name in group)
+        used.update(rule["s"] for rules in model.group_visibility.values() for rule in rules)
+        used.update(rule["s"] for rules in model.row_visibility.values() for rule in rules)
         reports_plan = plan_conversion(model, used)
         _check_reports_plan(reports_plan, template, queries, parameter_names | set(constants), diagnostics)
     if template is not None:
+        anchor = raw.get("bottom_anchor")
+        if anchor is not None:
+            if not isinstance(anchor, str) or not anchor.strip():
+                diagnostics.error("LAYOUT-PROJECT-060", "'bottom_anchor' debe ser el texto de un párrafo del cuerpo.")
+            else:
+                body = template.layout["body"]
+                def paragraph_text(block: dict[str, Any]) -> str:
+                    return "".join(run["t"] for line in block.get("ln", []) for run in line).strip()
+                matches = [i for i, block in enumerate(body)
+                           if block.get("k") == "P" and paragraph_text(block) == anchor.strip()]
+                if len(matches) != 1:
+                    diagnostics.error("LAYOUT-PROJECT-061", f"bottom_anchor {anchor!r} debe identificar un único párrafo.")
+                else:
+                    start = matches[0]
+                    before = body[:start]
+                    anchored = body[start:]
+                    while before and before[-1].get("k") == "P" and not paragraph_text(before[-1]):
+                        before.pop()
+                    while anchored and anchored[-1].get("k") == "P" and not paragraph_text(anchored[-1]):
+                        anchored.pop()
+                    if any(block.get("k") not in {"P", "G"} for block in anchored):
+                        diagnostics.error("LAYOUT-PROJECT-062", "El bloque inferior solo admite párrafos y tablas estáticas.")
+                    else:
+                        # El motor anterior ignora 'bottom': conserva el bloque en el cuerpo
+                        # para que siga visible hasta que se instale RPT_LAYOUT actualizado.
+                        template.layout["body"] = before + [{**block, "bottom_only": True} for block in anchored]
+                        template.layout["bottom"] = anchored
+        if template.data_tables and not queries:
+            diagnostics.error("LAYOUT-PROJECT-020", "Una plantilla con tabla de datos necesita una consulta.")
         needed = reports_plan.queries if reports_plan is not None else set()
         for query in sorted(template.queries):
             if query not in queries:
@@ -324,6 +384,7 @@ def build_layout_definition(project: LayoutProject, template: LayoutTemplate) ->
         "parameters": project.parameters,
         "queries": {name: {"file": q["file"], "sql": q["sql"], "binds": q["binds"],
                            **({"columns": q["columns"]} if q.get("columns") else {}),
+                           **({"rf": q["rf"]} if q.get("rf") else {}),
                            **_reports_query_entries(project.reports, name)}
                     for name, q in sorted(project.queries.items())},
         "constants": project.constants,
@@ -361,6 +422,24 @@ def _literal(value: str | None) -> str:
 
 def _param_name(name: str) -> str:
     return name.lower() if name.startswith("P_") else f"p_{name.lower()}"
+
+
+def _layout_sql_json(value: Any, depth: int = 0) -> str:
+    """One line per layout cell; keep its border and marker together for SQL edits."""
+    if depth >= 5 or not isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    margin = " " * depth
+    child_margin = " " * (depth + 1)
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        items = (child_margin + _layout_sql_json(item, depth + 1) for item in value)
+        return "[\n" + ",\n".join(items) + "\n" + margin + "]"
+    if not value:
+        return "{}"
+    items = (child_margin + json.dumps(key, ensure_ascii=False) + ": "
+             + _layout_sql_json(item, depth + 1) for key, item in value.items())
+    return "{\n" + ",\n".join(items) + "\n" + margin + "}"
 
 
 def build_package(definition: dict[str, Any]) -> str:
@@ -406,9 +485,12 @@ def build_package(definition: dict[str, Any]) -> str:
         ]
     lines += [
         "    -- Layout compilado desde la plantilla Word.",
+        "    -- Estilo editable: cada borde usa [grosor_mm, color_RGB_hex].",
+        "    -- En body, busque la consulta (por ejemplo Q_8); bd.cs contiene la fila",
+        "    -- repetida y b.b es su borde inferior. D9D9D9 = gris claro.",
         "    FUNCTION layout RETURN CLOB IS",
         "    BEGIN",
-        f"        RETURN {oracle_expression(compact_json(definition['layout']), clob=True)};",
+        f"        RETURN {oracle_expression(_layout_sql_json(definition['layout']), clob=True)};",
         "    END layout;",
         "",
         "    FUNCTION build(",
@@ -446,6 +528,8 @@ def build_package(definition: dict[str, Any]) -> str:
               if query.get("formulas") else []),
             *([f"        l_query.put('filters', JSON_ARRAY_T.parse({_literal(compact_json(query['filters']))}));"]
               if query.get("filters") else []),
+            *([f"        l_query.put('rf', JSON_ARRAY_T.parse({_literal(compact_json(query['rf']))}));"]
+              if query.get("rf") else []),
             *([f"        l_query.put('refs', JSON_ARRAY_T.parse({_literal(compact_json(query['refs']))}));"]
               if query.get("refs") else []),
             f"        l_queries.put('{name}', l_query);",

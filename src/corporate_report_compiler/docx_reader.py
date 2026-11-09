@@ -349,22 +349,29 @@ def _column_weights(table: object, count: int) -> list[float]:
     return [round(max(value, minimum) / minimum, 4) for value in widths]
 
 
-def _validate_a4(section: object, diagnostics: Diagnostics) -> None:
+def _validate_page_size(section: object, diagnostics: Diagnostics) -> None:
     if section.page_width is None or section.page_height is None:
         diagnostics.error(
             "DOCX-STYLE-010",
-            "La plantilla debe declarar un tamaño de página A4.",
+            "La plantilla debe declarar el ancho y alto de página.",
             location="Configuración de página",
         )
         return
-    width = float(section.page_width.inches)
-    height = float(section.page_height.inches)
-    short, long = sorted((width, height))
-    distance = abs(short - 8.27) + abs(long - 11.69)
-    if distance > 0.3:
+    width = float(section.page_width.mm)
+    height = float(section.page_height.mm)
+    if not (10 <= width <= 1000 and 10 <= height <= 1000):
         diagnostics.error(
             "DOCX-STYLE-010",
-            "La plantilla debe usar papel A4; el tamaño no se configura en el proyecto.",
+            "El ancho y alto de página deben estar entre 10 y 1000 mm.",
+            location="Configuración de página",
+        )
+    if (section.left_margin is not None and section.right_margin is not None
+            and section.left_margin + section.right_margin >= section.page_width) or (
+            section.top_margin is not None and section.bottom_margin is not None
+            and section.top_margin + section.bottom_margin >= section.page_height):
+        diagnostics.error(
+            "DOCX-STYLE-011",
+            "Los márgenes deben dejar un área imprimible positiva.",
             location="Configuración de página",
         )
 
@@ -688,7 +695,7 @@ def read_template(path: Path, diagnostics: Diagnostics) -> TemplateModel | None:
     )
     orientation = "LANDSCAPE" if landscape else "PORTRAIT"
     fields = tuple(dict.fromkeys((*header_fields, *footer_fields)))
-    _validate_a4(section, diagnostics)
+    _validate_page_size(section, diagnostics)
 
     if diagnostics.has_errors:
         return None
@@ -706,4 +713,6 @@ def read_template(path: Path, diagnostics: Diagnostics) -> TemplateModel | None:
         border_width=border_width,
         border_color=border_color,
         footer_style=footer_style,
+        page_width_mm=round(section.page_width.mm, 2),
+        page_height_mm=round(section.page_height.mm, 2),
     )

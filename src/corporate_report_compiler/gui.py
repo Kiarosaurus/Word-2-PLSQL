@@ -33,7 +33,8 @@ from .workspace import (
     workspace_outputs,
 )
 from .reports_model import TEMP_DIR, discard_conversion
-from .sources import common_source, project_tables, qualified, set_table_source
+from .sources import (common_source, project_functions, project_tables, qualified,
+                      restore_function_sources, set_function_source, set_table_source)
 
 
 def _project_location(item: dict, project_path: Path | None) -> str | None:
@@ -318,7 +319,7 @@ class CompilerApplication:
         ttk.Button(actions, text="Actualizar Word…", command=self._update_docx).pack(side="left", padx=(0, 16))
         ttk.Button(actions, text="Validar", command=self._validate).pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Compilar", command=self._compile).pack(side="left", padx=(0, 8))
-        ttk.Button(actions, text="Administrar items y tablas…", command=self._manage_project).pack(side="left", padx=(0, 16))
+        ttk.Button(actions, text="Items, tablas y funciones…", command=self._manage_project).pack(side="left", padx=(0, 16))
         self.copy_button = ttk.Button(actions, text="Copiar código APEX", command=self._copy_process, state="disabled")
         self.copy_button.pack(side="left", padx=(0, 8))
         self.open_button = ttk.Button(actions, text="Abrir carpeta de salida", command=self._open_output, state="disabled")
@@ -622,24 +623,27 @@ class CompilerApplication:
         body.configure(state="disabled")
 
     def _manage_project(self) -> None:
-        """Ventana «Administrar items y tablas»: pestañas Page Items y Tablas (FROM)."""
+        """Ventana de Page Items, tablas y funciones externas."""
 
         path = self._path_or_message()
         if path is None:
             return
         tk, ttk = self.tk, self.ttk
         window = tk.Toplevel(self.root)
-        window.title(f"Administrar items y tablas — {path.name}")
+        window.title(f"Administrar items, tablas y funciones — {path.name}")
         window.transient(self.root)
         window.minsize(900, 520)
         notebook = ttk.Notebook(window)
         notebook.pack(fill="both", expand=True, padx=8, pady=8)
         items_frame = ttk.Frame(notebook, padding=12)
         tables_frame = ttk.Frame(notebook, padding=12)
+        functions_frame = ttk.Frame(notebook, padding=12)
         notebook.add(items_frame, text="  Page Items  ")
         notebook.add(tables_frame, text="  Tablas (FROM)  ")
+        notebook.add(functions_frame, text="  Funciones  ")
         self._items_tab(items_frame, path, window)
         self._tables_tab(tables_frame, path, window)
+        self._functions_tab(functions_frame, path, window)
 
     def _items_tab(self, frame, path: Path, window) -> None:
         """Pestaña Page Items: todos a una página (P<n>_) o uno por uno (avanzado)."""
@@ -843,6 +847,138 @@ class CompilerApplication:
             "Se cambia en generado/q_*.sql y, para las fórmulas, en generado/codigo_reports/<función>.sql "
             "(reemplaza a la del .rdf).")).pack(anchor="w")
         ttk.Button(frame, text="Cerrar", command=window.destroy).pack(anchor="e", pady=(8, 0))
+
+    def _functions_tab(self, frame, path: Path, window) -> None:
+        """Califica las llamadas externas de fórmulas Reports con esquema y DB link."""
+
+        from tkinter import messagebox
+
+        tk, ttk = self.tk, self.ttk
+        found = project_functions(path)
+        ttk.Label(frame, text="Funciones externas en consultas y fórmulas",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        ttk.Label(frame, foreground="gray30", justify="left", text=(
+            "Se incluyen llamadas de q_*.sql y de las fórmulas de Oracle Reports.\n"
+            "Para añadir solo un DB link, deje Esquema vacío: el prefijo actual se conservará.\n"
+            "Si quita el DB link de FUNCION@LINK, APEX buscará FUNCION en su base local.\n"
+            "Seleccione funciones o aplique a todas. Las consultas se editan en generado/q_*.sql;\n"
+            "las fórmulas en generado/codigo_reports. «Quitar cambios (RDF)» restaura la llamada original."
+        )).pack(anchor="w", pady=(2, 8))
+
+        origin = ttk.Frame(frame)
+        origin.pack(fill="x")
+        schema = tk.StringVar()
+        link = tk.StringVar()
+        prefix_role = tk.StringVar(value="auto")
+        ttk.Label(origin, text="Esquema:").pack(side="left")
+        ttk.Entry(origin, textvariable=schema, width=18, font=("Consolas", 10)).pack(side="left", padx=(4, 16))
+        ttk.Label(origin, text="DB link:").pack(side="left")
+        ttk.Entry(origin, textvariable=link, width=18, font=("Consolas", 10)).pack(side="left", padx=(4, 16))
+        example = ttk.Label(origin, font=("Consolas", 10))
+        example.pack(side="left")
+
+        def show_example(*_args) -> None:
+            role = prefix_role.get()
+            if role == "auto" and not schema.get():
+                target = qualified("PREFIJO.FUNCION", "", link.get())
+            elif role == "package":
+                target = qualified("PAQUETE.FUNCION", schema.get(), link.get())
+            else:
+                target = qualified("FUNCION", schema.get(), link.get())
+            example.configure(text=f"Ejemplo: {target}")
+
+        schema.trace_add("write", show_example)
+        link.trace_add("write", show_example)
+        prefix_role.trace_add("write", show_example)
+        show_example()
+
+        interpretation = ttk.Frame(frame)
+        interpretation.pack(anchor="w", pady=(8, 0))
+        ttk.Label(interpretation, text="Si la llamada ya es PREFIJO.FUNCIÓN, el prefijo es:").pack(side="left")
+        for label, value in (("Conservar prefijo (solo DB link)", "auto"),
+                             ("Esquema", "schema"), ("Paquete", "package")):
+            ttk.Radiobutton(interpretation, text=label, variable=prefix_role, value=value).pack(
+                side="left", padx=(10, 0))
+
+        tree = ttk.Treeview(frame, columns=("name", "current", "places"), show="headings", selectmode="extended")
+        for column, title, width in (("name", "Función", 190), ("current", "Ahora", 260),
+                                     ("places", "Se usa en", 380)):
+            tree.heading(column, text=title)
+            tree.column(column, width=width, anchor="w")
+        tree.pack(fill="both", expand=True, pady=(10, 5))
+
+        def fill() -> None:
+            existing = tree.get_children()
+            if existing:
+                tree.delete(*existing)
+            for function in project_functions(path):
+                forms = " / ".join(f"{form} ({count})" if count > 1 else form
+                                   for form, count in function.forms.items())
+                tree.insert("", "end", iid=function.function,
+                            values=(function.function, forms, ", ".join(function.places)))
+
+        fill()
+        status = ttk.Label(frame, foreground="#1b5e20",
+                           text="Seleccione filas para aplicar solo a esas funciones." if found else
+                                "No se encontraron llamadas externas en las consultas o fórmulas del proyecto.")
+        status.pack(anchor="w")
+        buttons = ttk.Frame(frame)
+        buttons.pack(anchor="e", pady=(8, 0))
+
+        def apply(all_functions: bool = False, remove: bool = False, link_only: bool = False) -> None:
+            chosen = None if all_functions else list(tree.selection())
+            if chosen == []:
+                messagebox.showinfo("Funciones", "Seleccione una función o use «Aplicar a todas».", parent=window)
+                return
+            if not remove and not schema.get().strip() and not link.get().strip():
+                messagebox.showinfo("Funciones", "Escriba un esquema o DB link. Para quitar un origen, "
+                                    "use uno de los botones «Eliminar».", parent=window)
+                return
+            if remove and not link_only and prefix_role.get() == "auto":
+                messagebox.showinfo("Funciones", "Para quitar también el esquema, elija si el prefijo actual "
+                                    "es Esquema o Paquete. Para conservarlo, use «Eliminar solo DB link».",
+                                    parent=window)
+                return
+            change = set_function_source(path, chosen, "" if remove else schema.get(),
+                                         "" if remove else link.get(),
+                                         prefix_role="auto" if link_only else prefix_role.get())
+            if change.error:
+                messagebox.showinfo("Funciones", change.error, parent=window)
+                return
+            fill()
+            status.configure(text=f"Actualizadas {len(change.functions)} función(es). Compile e instale de nuevo "
+                                  "el package del reporte en Oracle.")
+            self._show("FUNCIONES ACTUALIZADAS\n" + "\n".join(
+                f"  {before} -> {after}" for before, after in change.replacements)
+                + "\n\nArchivos actualizados:\n" + "\n".join(
+                f"  {file} ({count} reemplazo(s))" for file, count in change.files))
+
+        ttk.Button(buttons, text="Aplicar selección", command=apply).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Aplicar a todas", command=lambda: apply(True)).pack(side="left", padx=(0, 8))
+
+        def restore() -> None:
+            chosen = list(tree.selection())
+            if not chosen:
+                messagebox.showinfo("Funciones", "Seleccione las funciones que desea restaurar desde el RDF.",
+                                    parent=window)
+                return
+            change = restore_function_sources(path, chosen)
+            if change.error:
+                messagebox.showinfo("Funciones", change.error, parent=window)
+                return
+            fill()
+            status.configure(text=f"Restauradas {len(change.functions)} función(es) desde el RDF/XML. "
+                                  "Compile e instale de nuevo el package del reporte.")
+            self._show("LLAMADAS RESTAURADAS DESDE RDF/XML\n" + "\n".join(
+                f"  {before} -> {after}" for before, after in change.replacements)
+                + "\n\nCopias anteriores:\n" + "\n".join(str(backup) for backup in change.backups))
+
+        ttk.Button(buttons, text="Quitar cambios (RDF)", command=restore).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Eliminar solo DB link", command=lambda: apply(False, True, True)).pack(
+            side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Eliminar esquema y DB link", command=lambda: apply(False, True)).pack(
+            side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Cerrar", command=window.destroy).pack(side="left")
 
     def _show_renamed(self, path: Path, change) -> None:
         lines = ["PAGE ITEMS RENOMBRADOS", "=" * 22]

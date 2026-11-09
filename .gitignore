@@ -21,6 +21,7 @@ dist/
 *.egg
 .eggs/
 wheels/
+tmp/
 
 # proyectos/: only the demo is versioned; projects created from a DOCX stay local
 /proyectos/*

@@ -681,7 +681,7 @@ def load_project(
     if "paper_size" in raw:
         diagnostics.error(
             "PROJECT-076",
-            "'paper_size' no forma parte del contrato: la plantilla DOCX debe estar en A4.",
+            "'paper_size' no forma parte del contrato: el tamaño se toma de la página del DOCX.",
         )
     if "auto_reserve_pct" in raw:
         diagnostics.error(

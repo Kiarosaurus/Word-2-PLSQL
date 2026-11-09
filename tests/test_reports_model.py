@@ -17,7 +17,7 @@ from corporate_report_compiler.diagnostics import Diagnostics
 from corporate_report_compiler.gui import _format_result
 from corporate_report_compiler.layout_reader import read_layout_template
 from corporate_report_compiler.reports_convert import convert_unit, plan_conversion
-from corporate_report_compiler.reports_model import load_reports_model, reports_xml
+from corporate_report_compiler.reports_model import ReportsColumn, load_reports_model, reports_xml
 from corporate_report_compiler.workspace import format_import, import_docx, workspace_outputs
 
 
@@ -121,6 +121,17 @@ class ReportsModelTests(unittest.TestCase):
 class ReportsConvertTests(unittest.TestCase):
     def setUp(self) -> None:
         self.model = load_reports_model(FIXTURE, Diagnostics())
+
+    def test_report_summary_of_summary_is_not_multiplied_by_row_count(self) -> None:
+        self.model.columns["CS_INNER"] = ReportsColumn(
+            "CS_INNER", "Q_CUOTAS", None, "summary", source="NRO_CUOTA",
+            function="sum", datatype="N", reset="REPORT")
+        self.model.columns["CS_OUTER"] = ReportsColumn(
+            "CS_OUTER", "Q_CUOTAS", None, "summary", source="CS_INNER",
+            function="sum", datatype="N", reset="REPORT")
+        plan = plan_conversion(self.model, {"CS_OUTER"})
+        self.assertEqual(plan.summaries["CS_OUTER"],
+                         {"q": "Q_CUOTAS", "s": "NRO_CUOTA", "f": "sum"})
 
     def test_plan_converts_formulas_placeholders_summaries_and_links(self) -> None:
         plan = plan_conversion(self.model, {"NOMBRE1", "CF_DOBLE", "CP_ETIQUETA", "CF_TOTAL_CUOTA", "CS_CUOTAS"})

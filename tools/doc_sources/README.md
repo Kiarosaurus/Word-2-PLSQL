@@ -7,7 +7,7 @@ Word y Python se usan solamente en la computadora del desarrollador. En el servi
 ## Alcance de la versión 1.0
 
 - una consulta SQL `SELECT` o `WITH` por reporte;
-- una plantilla DOCX A4 con un título, una tabla de dos filas y un pie;
+- una plantilla DOCX tabular con tamaño de página tomado del Word, un título, una tabla de dos filas y un pie;
 - fila 1: encabezados literales;
 - fila 2: un marcador `{{COLUMN:ALIAS}}` por celda;
 - marcadores escalares `{{REPORT_TITLE}}`, `{{APP_USER}}`, `{{GENERATED_AT}}` y `{{FIELD:NOMBRE}}`;
@@ -32,8 +32,8 @@ Usuario: {{APP_USER}} | Fecha: {{GENERATED_AT}}   <- pie de página de Word
 
 ## Dos modos
 
-- **Modo simple** (`corporate-report-project/1.0`): un título, una tabla y un pie, impresos con `APEX_DATA_EXPORT`. También genera XLSX, que lleva solo la fila de títulos y los datos (sin título, usuario, fecha ni pie), listo para filtrar y analizar.
-- **Modo layout** (`corporate-layout-project/1.0`): varias tablas, cuadrículas con bordes visibles, blancos o sin borde, totales y número de página, impresos por el motor PDF en PL/SQL (`sql/modo_layout`). Una consulta por archivo, como el Data Model de Oracle Reports. Ejemplo ficticio: `proyectos/demo/estado_cuenta`. Con el `.rdf` del reporte original importa sus consultas y convierte fórmulas, marcadores de posición, totales y Data Links; la GUI lista lo que falte a mano. Ver Manual de uso, sección 13.
+- **Modo simple tabular** (`corporate-report-project/1.0`): un título, una tabla y un pie, impresos con `APEX_DATA_EXPORT`. El PDF usa las medidas del Word; el XLSX lleva solo títulos y datos.
+- **Modo layout** (`corporate-layout-project/1.0`): admite varias tablas, una tabla de una celda o un documento de solo párrafos. El PDF usa las medidas del Word. Los documentos sin datos pueden usar `{{FIELD:NOMBRE}}` enlazados a Page Items, sin consulta SQL.
 
 ## Flujo de trabajo
 

@@ -86,6 +86,8 @@ def build_definition(template: TemplateModel, project: ProjectModel, sql: str) -
             "footer_template": template.footer_template,
             "orientation": project.orientation or template.template_orientation,
             "file_name": project.file_name,
+            "page_width_mm": template.page_width_mm,
+            "page_height_mm": template.page_height_mm,
         },
         "query": {"sql": sql, "bindings": list(project.bindings)},
         "fields": list(project.fields),
@@ -101,12 +103,20 @@ def _utf8_chunks(value: str, maximum_bytes: int = 8_000) -> list[str]:
     chunks: list[str] = []
     current: list[str] = []
     size = 0
+    has_newlines = "\n" in value
     for character in value:
         encoded_size = len(character.encode("utf-8"))
         if current and size + encoded_size > maximum_bytes:
-            chunks.append("".join(current))
-            current = []
-            size = 0
+            fragment = "".join(current)
+            line_end = fragment.rfind("\n") if has_newlines else -1
+            if line_end >= 0:
+                chunks.append(fragment[:line_end + 1])
+                current = list(fragment[line_end + 1:])
+                size = len(fragment[line_end + 1:].encode("utf-8"))
+            else:
+                chunks.append(fragment)
+                current = []
+                size = 0
         current.append(character)
         size += encoded_size
     if current:
@@ -198,6 +208,8 @@ begin
         p_file_name             => {oracle_expression(report['file_name'], clob=False)},
         p_format                => {format_expression},
         p_orientation           => {orientation_expression},
+        p_page_width_mm         => {report['page_width_mm']},
+        p_page_height_mm        => {report['page_height_mm']},
         p_excluded_columns_json => l_excluded_columns,
         p_column_widths_json    => l_column_widths
     );

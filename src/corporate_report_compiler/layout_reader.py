@@ -9,6 +9,7 @@ intérprete PL/SQL ``RPT_LAYOUT`` dibuja con ``RPT_PDF``:
 - tablas de datos (``D``): la fila con ``{{COLUMN:CONSULTA.COLUMNA}}`` se repite
   por cada registro; las filas anteriores son cabecera (se repite en cada
   página) y las posteriores, totales con ``{{SUM:CONSULTA.COLUMNA}}``;
+  ``{{GROUP:CONSULTA.COLUMNA}}`` vincula una fila estática a una ruptura de grupo;
 - encabezado y pie de Word, que admiten ``{{PAGE}}`` y ``{{PAGES}}``.
 """
 
@@ -34,7 +35,7 @@ from .docx_reader import (
     _effective_font_name,
     _effective_size,
     _scan_prohibited_elements,
-    _validate_a4,
+    _validate_page_size,
 )
 from .placeholders import report_empty_marker
 from .security import inspect_docx_zip
@@ -45,7 +46,7 @@ PT_MM = 25.4 / 72
 IDENT = r"[A-Z][A-Z0-9_$#]{0,29}"
 TOKEN_PATTERN = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
 MARKER_PATTERN = re.compile(
-    rf"^(?P<kind>PAGE|PAGES|REPORT_TITLE|APP_USER|GENERATED_AT|FIELD|COLUMN|SUM)"
+    rf"^(?P<kind>PAGE|PAGES|REPORT_TITLE|APP_USER|GENERATED_AT|FIELD|LABEL|COLUMN|SUM|GROUP_END|GROUP)"
     rf"(?::(?P<name>{IDENT}(?:\.{IDENT})?))?(?:\|(?P<mask>[^{{}}|]{{1,60}}))?$"
 )
 UNQUALIFIED_PATTERN = re.compile(
@@ -78,7 +79,9 @@ def is_layout_docx(path: Path) -> bool:
         return True
     # El modo simple admite una sola tabla y ninguna en encabezado o pie: más que eso es
     # modo layout aunque los marcadores aún estén sin completar ({{COLUMN:}}).
-    if len(document.tables) > 1:
+    if len(document.tables) != 1:
+        return True
+    if len(document.tables[0].rows) == 1 and len(document.tables[0].rows[0].cells) == 1:
         return True
     return any(
         bool(zone.tables)
@@ -148,7 +151,7 @@ class _Reader:
                 )
                 continue
             kind, name = parsed.group("kind"), parsed.group("name")
-            needs_name = kind in {"FIELD", "COLUMN", "SUM"}
+            needs_name = kind in {"FIELD", "LABEL", "COLUMN", "SUM", "GROUP", "GROUP_END"}
             if needs_name != (name is not None):
                 self.diagnostics.error("LAYOUT-TOKEN-002", f"Marcador mal formado: {match.group(0)}.", location=location)
                 continue
@@ -158,7 +161,7 @@ class _Reader:
                     f"{match.group(0)} solo se admite en el encabezado o el pie de página de Word.",
                     location=location,
                 )
-            if kind in {"COLUMN", "SUM"}:
+            if kind in {"COLUMN", "SUM", "GROUP", "GROUP_END"}:
                 if "." not in name:
                     self.diagnostics.error(
                         "LAYOUT-TOKEN-004",
@@ -166,9 +169,15 @@ class _Reader:
                         location=location,
                     )
                     continue
-                expected = {"data-body", "data-group"} if kind == "COLUMN" else {"data-footer", "data-header", "data-group"}
+                expected = ({"data-body", "data-group"} if kind == "COLUMN" else
+                            {"data-group"} if kind == "GROUP" else
+                            {"data-footer"} if kind == "GROUP_END" else
+                            {"data-footer", "data-header", "data-group"})
+                if kind in {"GROUP", "GROUP_END"} and parsed.group("mask") is not None:
+                    self.diagnostics.error("LAYOUT-TOKEN-002", f"{match.group(0)} no admite formato.", location=location)
                 if zone not in expected:
                     where = ("la fila que se repite o en una fila de grupo de una tabla de datos" if kind == "COLUMN"
+                             else "una fila de grupo de una tabla de datos" if kind == "GROUP"
                              else "las filas que no se repiten de una tabla de datos")
                     found = {
                         "page": "el encabezado o pie de página", "body": "un párrafo del cuerpo",
@@ -180,7 +189,10 @@ class _Reader:
                         f"Se encontró {match.group(0)} en {found}; se esperaba en {where}.",
                         location=location,
                         suggestion=("Mueva el marcador a la fila que corresponde a cada registro de la consulta."
-                                    if kind == "COLUMN" else "Mueva el total a un título o a una fila de totales de su tabla."),
+                                    if kind == "COLUMN" else
+                                    "Coloque GROUP en una fila anterior al detalle de la tabla de datos."
+                                    if kind == "GROUP" else
+                                    "Mueva el total a un título o a una fila de totales de su tabla."),
                     )
                     continue
                 table_query, column = name.split(".", 1)
@@ -191,7 +203,9 @@ class _Reader:
                         location=location,
                     )
                 self.template.queries.setdefault(table_query, set()).add(column)
-            elif kind == "FIELD":
+            elif kind in {"FIELD", "LABEL"}:
+                if kind == "LABEL" and not parsed.group("mask"):
+                    self.diagnostics.error("LAYOUT-TOKEN-002", f"{match.group(0)} debe incluir el rótulo después de |.", location=location)
                 if "." in name:
                     source, column = name.split(".", 1)
                     self.template.queries.setdefault(source, set()).add(column)
@@ -277,6 +291,10 @@ class _Reader:
                         location=location,
                     )
                 self.check_markers(run["t"], zone=zone, location=location, query=query)
+                if zone in {"data-group", "data-footer"}:
+                    # Directiva de Word: vincula una fila estática a un grupo sin imprimirla.
+                    run["t"] = re.sub(r"\{\{\s*GROUP(?:_END)?\s*:\s*" + IDENT + r"\." + IDENT + r"\s*\}\}",
+                                      "", run["t"], flags=re.IGNORECASE)
         fmt = paragraph.paragraph_format
         style_fmt = paragraph.style.paragraph_format if paragraph.style is not None else None
         before = fmt.space_before if fmt.space_before is not None else (style_fmt.space_before if style_fmt else None)
@@ -414,13 +432,8 @@ class _Reader:
                 tc_props = cell.find(qn("w:tcPr"))
                 span_node = tc_props.find(qn("w:gridSpan")) if tc_props is not None else None
                 span = int(span_node.get(qn("w:val"), "1")) if span_node is not None else 1
-                if tc_props is not None and tc_props.find(qn("w:vMerge")) is not None:
-                    self.diagnostics.error(
-                        "LAYOUT-TABLE-004",
-                        "Se encontró una celda combinada en vertical; solo se admiten combinaciones horizontales.",
-                        location=cell_location,
-                        suggestion="Separe esa celda en filas independientes o combine celdas de la misma fila.",
-                    )
+                merge_node = tc_props.find(qn("w:vMerge")) if tc_props is not None else None
+                vertical = merge_node.get(qn("w:val"), "continue") if merge_node is not None else None
                 cell_borders = tc_props.find(qn("w:tcBorders")) if tc_props is not None else None
 
                 def cell_side(names: tuple[str, ...], fallback: str) -> list[Any] | None:
@@ -442,13 +455,17 @@ class _Reader:
                 fill = fill.upper() if fill and fill.casefold() != "auto" else None
                 valign = tc_props.find(qn("w:vAlign")) if tc_props is not None else None
                 valign = {"center": "C", "bottom": "B"}.get(valign.get(qn("w:val")) if valign is not None else "", "T")
+                no_wrap = tc_props.find(qn("w:noWrap")) if tc_props is not None else None
+                clip = no_wrap is not None and no_wrap.get(qn("w:val"), "1").lower() not in {"0", "false", "off"}
                 paragraphs = [
                     self.paragraph(p, parent, zone=row_zone if is_data else ("page" if zone == "page" else "cell"),
                                    location=cell_location, query=query)
                     for p in cell if p.tag == qn("w:p")
                 ]
                 cells.append({"c": column, "sp": span, "fl": fill, "va": valign,
-                              "b": {key: value for key, value in borders.items() if value}, "ps": paragraphs})
+                              "b": {key: value for key, value in borders.items() if value}, "ps": paragraphs,
+                              **({"clip": True} if clip else {}),
+                              **({"_vm": vertical} if vertical is not None else {})})
                 column += span
             column += grid_gap("gridAfter")
             if column != len(widths):
@@ -460,6 +477,61 @@ class _Reader:
                 )
             rule = height.get(qn("w:hRule"), "atLeast") if height is not None else "auto"
             rows.append({"h": self._twips(height, "w:val"), "hr": rule if rule in {"exact", "atLeast"} else "auto", "cs": cells})
+
+        # Word codifica una combinación vertical con una celda inicial y una
+        # continuación en cada fila siguiente. El layout conserva solo la inicial.
+        by_position = [{(cell["c"], cell["sp"]): cell for cell in row["cs"]} for row in rows]
+        consumed: set[tuple[int, int, int]] = set()
+        for row_index, row in enumerate(rows):
+            for cell in row["cs"]:
+                if cell.get("_vm") != "restart":
+                    continue
+                key = (cell["c"], cell["sp"])
+                end = row_index + 1
+                while end < len(rows) and by_position[end].get(key, {}).get("_vm") == "continue":
+                    continuation = by_position[end][key]
+                    if any(run["t"].strip() for para in continuation["ps"] for line in para["ln"] for run in line):
+                        self.diagnostics.error("LAYOUT-TABLE-004", "La continuación de una celda vertical contiene texto.",
+                                               location=f"{location}, fila {end + 1}, columna {cell['c'] + 1}")
+                    consumed.add((end, *key))
+                    end += 1
+                if end == row_index + 1:
+                    continue
+                if is_data:
+                    owner, kind = plan["rows"][row_index]
+                    same_zone = all(plan["rows"][i] == (owner, kind) for i in range(row_index + 1, end))
+                    same_group = (kind == "data-group" and all(
+                        plan["groups"].get(i) == plan["groups"].get(row_index)
+                        and (i in plan["group_titles"]) == (row_index in plan["group_titles"])
+                        for i in range(row_index + 1, end)
+                    ))
+                    if not same_zone or (kind not in {"data-header", "data-footer"} and not same_group):
+                        self.diagnostics.error(
+                            "LAYOUT-TABLE-004",
+                            "La combinación vertical debe quedar en filas estáticas o en títulos "
+                            "contiguos del mismo grupo de una consulta.",
+                            location=f"{location}, fila {row_index + 1}, columna {cell['c'] + 1}",
+                        )
+                cell["rs"] = end - row_index
+                bottom = by_position[end - 1][key]["b"].get("b")
+                if bottom is None:
+                    cell["b"].pop("b", None)
+                else:
+                    cell["b"]["b"] = bottom
+        for row_index, row in enumerate(rows):
+            kept = []
+            for cell in row["cs"]:
+                vertical = cell.pop("_vm", None)
+                key = (row_index, cell["c"], cell["sp"])
+                if vertical == "continue" and key not in consumed:
+                    self.diagnostics.error("LAYOUT-TABLE-004", "Celda vertical sin inicio en la fila anterior.",
+                                           location=f"{location}, fila {row_index + 1}, columna {cell['c'] + 1}")
+                elif vertical not in {None, "restart", "continue"}:
+                    self.diagnostics.error("LAYOUT-TABLE-004", "Valor de combinación vertical no válido.",
+                                           location=f"{location}, fila {row_index + 1}, columna {cell['c'] + 1}")
+                if key not in consumed:
+                    kept.append(cell)
+            row["cs"] = kept
 
         block = {"x": x, "w": widths, "pd": pad}
         if not is_data:
@@ -493,23 +565,47 @@ class _Reader:
                     if i in plan["group_titles"]:
                         rows[i]["gh"] = True
             body = next(rows[i] for i in indexes if plan["rows"][i][1] == "data-body")
-            footer = [rows[i] for i in indexes if plan["rows"][i][1] == "data-footer"]
+            footer_indexes = [i for i in indexes if plan["rows"][i][1] == "data-footer"]
+            group_footer = []
+            footer = [rows[i] for i in footer_indexes]
+            end_markers = [(i, col) for i in footer_indexes for kind, q, col in
+                           self._marker_refs("".join(t.text or "" for t in rows_xml[i].iter(qn("w:t"))))
+                           if kind == "GROUP_END" and q == query]
+            if end_markers:
+                first, column = end_markers[0]
+                if len(end_markers) > 1:
+                    self.diagnostics.error("LAYOUT-TABLE-007", "Solo se admite un GROUP_END por sección.",
+                                           location=location)
+                group_footer = [rows[i] for i in footer_indexes if i >= first]
+                footer = [rows[i] for i in footer_indexes if i < first]
+                group_keys = next((list(names) for names in self.model.groups.values() if column in names), [column]) if self.model else [column]
             data = {"k": "D", "q": query, **block, "hd": header, "bd": body, "ft": footer,
-                    "sm": sorted(sums_in(header + footer))}
+                    "sm": sorted(sums_in(header + footer + group_footer))}
+            if group_footer:
+                data["gf"] = {"g": group_keys, "rs": group_footer}
             if sums_in([rows[i] for i in indexes if plan["rows"][i][1] == "data-header"]):
                 data["hs"] = True              # totales arriba de las filas: se calculan antes de dibujarlas
             if self.model is not None:
                 data["he"] = True              # como un marco de Reports: sin filas, la sección no se imprime
+                group_rules = self.model.group_visibility.get(query, [])
+                if group_rules:
+                    data["gt"] = [{key: rule[key] for key in ("g", "s", "op", "v")}
+                                  for rule in group_rules]
+                    data["vg"] = True           # no imprimir títulos de grupos ocultos
+                row_rules = self.model.row_visibility.get(query, [])
+                if row_rules:
+                    data["rf"] = [{key: rule[key] for key in ("s", "op", "v", "trunc")}
+                                  for rule in row_rules]
             self.template.data_tables.append(query)
             blocks.append(data)
         return blocks
 
     def _marker_refs(self, text: str) -> list[tuple[str, str | None, str | None]]:
-        """(tipo, consulta, columna) de cada marcador FIELD/COLUMN/SUM del texto, ya resuelto con Reports."""
+        """(tipo, consulta, columna) de cada marcador de datos o grupo del texto."""
 
         refs = []
         for match in TOKEN_PATTERN.finditer(text):
-            parsed = re.match(r"^\s*(FIELD|COLUMN|SUM)\s*:\s*([^|]+?)\s*(?:\|.*)?$", match.group(1), re.IGNORECASE | re.DOTALL)
+            parsed = re.match(r"^\s*(FIELD|COLUMN|SUM|GROUP_END|GROUP)\s*:\s*([^|]+?)\s*(?:\|.*)?$", match.group(1), re.IGNORECASE | re.DOTALL)
             if parsed is None:
                 continue
             kind, name = parsed.group(1).upper(), parsed.group(2).strip()
@@ -602,7 +698,28 @@ class _Reader:
                     assignment[index] = (section, "data-group")
                     groups[index] = inferred_groups[index]
                     continue
-                own = [column for kind, q, column in refs[index] if kind in {"FIELD", "COLUMN"} and q == query and column]
+                group_refs = [column for kind, q, column in refs[index]
+                              if kind == "GROUP" and q == query and column]
+                own = [column for kind, q, column in refs[index]
+                       if kind in {"FIELD", "COLUMN"} and q == query and column]
+                if group_refs:
+                    seen_group = True
+                    for column in group_refs:
+                        group = (self.model.columns[column].group or "").upper() if (
+                            self.model is not None and column in self.model.columns) else ""
+                        if group and group in self.model.groups:
+                            for level, names in self.model.groups.items():
+                                if not any(name in self.model.columns and self.model.columns[name].query == query
+                                           for name in names):
+                                    continue
+                                keys.extend(name for name in names if name not in keys)
+                                if level == group:
+                                    break
+                        elif column not in keys:
+                            keys.append(column)
+                    assignment[index] = (section, "data-group")
+                    groups[index] = list(keys)
+                    continue
                 if own:
                     seen_group = True
                     keys += [column for column in own if column not in keys]
@@ -659,7 +776,7 @@ def read_layout_template(path: Path, diagnostics: Diagnostics, model: Any = None
     section = document.sections[0]
     if section.different_first_page_header_footer:
         diagnostics.error("DOCX-STRUCT-003", "No se admite un encabezado o pie diferente en la primera página.")
-    _validate_a4(section, diagnostics)
+    _validate_page_size(section, diagnostics)
     if diagnostics.has_errors:
         return None
 
@@ -683,7 +800,7 @@ def read_layout_template(path: Path, diagnostics: Diagnostics, model: Any = None
     footer = [] if section.footer.is_linked_to_previous else reader.blocks(
         section.footer._element, section.footer, zone="page", content_width=content_width, label="Pie")
     body = reader.blocks(document.element.body, document._body, zone="body", content_width=content_width, label="Cuerpo")
-    if not template.data_tables:
+    if not template.data_tables and document.tables:
         diagnostics.warning("LAYOUT-STRUCT-002", "La plantilla no tiene ninguna tabla de datos {{COLUMN:...}}.")
     if diagnostics.has_errors:
         return None

@@ -208,6 +208,46 @@ class ImportDocxTests(unittest.TestCase):
         self.assertFalse((self.projects / "ventas" / "generado" / "ventas.docx.bak").exists())
         self.assertTrue(in_place.is_file())
 
+    def test_reports_filters_and_project_settings_survive_reimport(self) -> None:
+        original = next((ROOT / "proyectos").glob("FCR118_E*"))
+        source = self.source.parent / "FCR118_E.docx"
+        shutil.copyfile(original / "FCR118_E.docx", source)
+        xml = original / "generado" / "FCR118_E.reports.xml"
+
+        first = import_docx(source, projects_root=self.projects, reports=xml, page="69")
+        self.assertFalse(first.diagnostics.has_errors, first.diagnostics.to_dict())
+        project = self.projects / "FCR118_E" / "generado" / "FCR118_E.report.json"
+        raw = json.loads(project.read_text(encoding="utf-8"))
+        self.assertEqual(raw["visibility"]["Q_1"]["all_any"], [
+            ["MOV_CAR", "MOV_ABO", "CF_ACU_CAR_ANT", "CF_ACU_ABO_ANT"],
+            ["CF_SALDO_INI8", "CF_SALDO_FIN8"],
+        ])
+        self.assertEqual({p["name"]: p["default"] for p in raw["parameters"] if "default" in p},
+                         {"NUMERO1": 303, "NUMERO2": 306, "NUMERO3": 63})
+        raw["visibility"]["Q_1"]["hide_empty_groups"] = False
+        project.write_text(json.dumps(raw), encoding="utf-8")
+
+        second = import_docx(source, projects_root=self.projects, replace=True)
+        self.assertFalse(second.diagnostics.has_errors, second.diagnostics.to_dict())
+        updated = json.loads(project.read_text(encoding="utf-8"))
+        self.assertFalse(updated["visibility"]["Q_1"]["hide_empty_groups"])
+        self.assertEqual(next(p["item"] for p in updated["parameters"] if p["name"] == "NUMERO1"),
+                         "P69_NUMERO1")
+        self.assertTrue((project.parent / "FCR118_E.reports.xml").is_file())
+
+    def test_reports_visibility_requires_a_data_table(self) -> None:
+        original = ROOT / "proyectos" / "PFR201_3"
+        source = self.source.parent / "PFR201_3.docx"
+        shutil.copyfile(original / "PFR201_3.docx", source)
+        xml = original / "generado" / "PFR201_3.reports.xml"
+
+        result = import_docx(source, projects_root=self.projects, reports=xml, page="75")
+
+        self.assertFalse(result.diagnostics.has_errors, result.diagnostics.to_dict())
+        project = self.projects / "PFR201_3" / "generado" / "PFR201_3.report.json"
+        raw = json.loads(project.read_text(encoding="utf-8"))
+        self.assertNotIn("PRINCIPAL", raw["visibility"])
+
     def test_invalid_docx_changes_nothing(self) -> None:
         broken = self.base / "roto.docx"
         broken.write_bytes(b"no es un zip")

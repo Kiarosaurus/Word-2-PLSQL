@@ -11,7 +11,11 @@ CREATE OR REPLACE PACKAGE rpt_pdf AUTHID CURRENT_USER AS
     c_bold_italic CONSTANT PLS_INTEGER := 4;
 
     -- ---------------------------------------------------------- documento
-    PROCEDURE new_document(p_landscape IN BOOLEAN DEFAULT FALSE);
+    PROCEDURE new_document(
+        p_landscape IN BOOLEAN DEFAULT FALSE,
+        p_width_mm  IN NUMBER DEFAULT NULL,
+        p_height_mm IN NUMBER DEFAULT NULL
+    );
     PROCEDURE new_page;
     FUNCTION  page_count   RETURN PLS_INTEGER;
     FUNCTION  current_page RETURN PLS_INTEGER;

@@ -19,9 +19,10 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
+import shutil
 
 from .diagnostics import Diagnostics
-from .reports_convert import CODE_DIR, tokens
+from .reports_convert import BUILTINS, CODE_DIR, tokens
 from .reports_model import load_reports_model
 
 
@@ -46,6 +47,14 @@ class TableSpan:
     table: str         # solo el nombre de la tabla, en mayúsculas
 
 
+@dataclass(frozen=True, slots=True)
+class FunctionSpan:
+    start: int
+    end: int
+    text: str
+    function: str
+
+
 @dataclass(slots=True)
 class TableUse:
     label: str         # q_principal.sql, fórmula cf_finalformula
@@ -61,6 +70,23 @@ class ProjectTable:
     def forms(self) -> dict[str, int]:
         """Formas actuales y cuántas veces aparece cada una."""
 
+        counts: dict[str, int] = {}
+        for use in self.uses:
+            counts[use.text] = counts.get(use.text, 0) + 1
+        return counts
+
+    @property
+    def places(self) -> list[str]:
+        return list(dict.fromkeys(use.label for use in self.uses))
+
+
+@dataclass(slots=True)
+class ProjectFunction:
+    function: str
+    uses: list[TableUse] = field(default_factory=list)
+
+    @property
+    def forms(self) -> dict[str, int]:
         counts: dict[str, int] = {}
         for use in self.uses:
             counts[use.text] = counts.get(use.text, 0) + 1
@@ -133,6 +159,48 @@ def table_spans(code: str) -> list[TableSpan]:
             index = max(index + 1, table_ref(index + 1))
             continue
         index += 1
+    return found
+
+
+def function_spans(code: str, internal: set[str] | None = None) -> list[FunctionSpan]:
+    """Llamadas externas de PL/SQL de Reports, sin comentarios ni literales.
+
+    Reconoce FUNCIÓN(...), PREFIJO.FUNCIÓN(...), ESQUEMA.PAQUETE.FUNCIÓN(...)
+    y sus variantes con DB link.
+    No reescribe declaraciones ni funciones locales del reporte.
+    """
+
+    items = [item for item in _with_offsets(code) if item[0] not in {"ws", "comment", "string"}]
+    excluded = {name.upper() for name in internal or set()} | {name.upper() for name in BUILTINS}
+    excluded |= {"RPT_LAYOUT", "DBMS_OUTPUT", "SQLERRM", "SQLCODE"}
+    found: list[FunctionSpan] = []
+
+    def value(index: int) -> str:
+        return items[index][1] if 0 <= index < len(items) else ""
+
+    index = 0
+    while index < len(items):
+        kind, name, start = items[index]
+        if kind != "ident" or value(index - 1) == ".":
+            index += 1
+            continue
+        last, base = index, name
+        while (value(last + 1) == "." and last + 2 < len(items)
+               and items[last + 2][0] == "ident" and last - index < 4):
+            last += 2
+            base = items[last][1]
+        if value(last + 1) == "@" and last + 2 < len(items) and items[last + 2][0] == "ident":
+            last += 2
+            while value(last + 1) == "." and last + 2 < len(items) and items[last + 2][0] == "ident":
+                last += 2
+        if (value(last + 1) == "(" and base.upper() not in excluded
+                and name.upper() not in excluded
+                and value(index - 1).lower() not in {"function", "procedure"}):
+            end = items[last][2] + len(items[last][1])
+            found.append(FunctionSpan(start, end, code[start:end], base.upper()))
+            index = last + 1
+        else:
+            index += 1
     return found
 
 
@@ -215,10 +283,32 @@ def project_tables(project_path: Path) -> list[ProjectTable]:
     return [tables[name] for name in sorted(tables)]
 
 
+def project_functions(project_path: Path) -> list[ProjectFunction]:
+    """Funciones externas llamadas por las consultas y fórmulas del proyecto."""
+
+    sources = _sources(Path(project_path))
+    internal = {source.unit.upper() for source in sources if source.unit}
+    functions: dict[str, ProjectFunction] = {}
+    for source in sources:
+        for span in function_spans(source.code, internal):
+            functions.setdefault(span.function, ProjectFunction(span.function)).uses.append(
+                TableUse(source.label, span.text))
+    return [functions[name] for name in sorted(functions)]
+
+
 @dataclass(slots=True)
 class SourceChange:
     tables: list[str] = field(default_factory=list)
     files: list[tuple[Path, int]] = field(default_factory=list)   # archivo, reemplazos
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class FunctionChange:
+    functions: list[str] = field(default_factory=list)
+    files: list[tuple[Path, int]] = field(default_factory=list)
+    replacements: list[tuple[str, str]] = field(default_factory=list)  # forma actual -> forma nueva
+    backups: list[Path] = field(default_factory=list)
     error: str | None = None
 
 
@@ -231,6 +321,222 @@ def _formula_file(unit: str, code: str) -> str:
         code.strip(),
         "",
     ])
+
+
+def _function_file(unit: str, code: str) -> str:
+    return "\n".join([
+        f"-- {unit}: función de Oracle Reports con llamadas externas calificadas",
+        "-- ORIGEN_FUNCIONES_EXTERNAS: administrado por el compilador",
+        "-- Este archivo reemplaza el código del .rdf al compilar.",
+        "-- Sintaxis de Reports: :NOMBRE para columnas, parámetros y fórmulas.",
+        "",
+        code.strip(),
+        "",
+    ])
+
+
+def _function_target(current: str, schema: str, link: str, role: str) -> str:
+    """Resuelve el prefijo sin confundir esquema y paquete.
+
+    Con solo un DB link nuevo, el prefijo existente se conserva: es seguro
+    tanto si se trata de un esquema como si se trata de un paquete.
+    """
+
+    name = current.split("@", 1)[0].upper()
+    parts = name.split(".")
+    if len(parts) == 1:
+        target = ([schema] if schema else []) + parts
+    elif len(parts) == 2:
+        if role == "auto" and (not schema or schema == parts[0]):
+            # Tanto al poner como al quitar el DB link, conservar el prefijo.
+            # No se puede deducir si es un esquema o un paquete a partir de
+            # un marcador genérico escrito en una edición anterior. Si el
+            # esquema escrito coincide literalmente con el prefijo, conservarlo
+            # también es seguro e idempotente.
+            target = parts
+        else:
+            if role == "schema":
+                target = ([schema] if schema else []) + [parts[-1]]
+            elif role == "package":
+                target = ([schema] if schema else []) + parts
+            else:
+                raise ValueError(f"{current}: indique si el prefijo {parts[0]} es esquema o paquete.")
+    elif len(parts) == 3:
+        # En modo automático solo se modifica el link. Para quitar o cambiar
+        # el esquema se debe elegir explícitamente cómo interpretar el prefijo.
+        target = parts if role == "auto" and not schema else ([schema] if schema else []) + parts[1:]
+    else:
+        raise ValueError(f"{current}: llamada con más de tres componentes; edítela en codigo_reports.")
+    return ".".join(target) + (f"@{link}" if link else "")
+
+
+def set_function_source(project_path: Path, functions: list[str] | None,
+                        schema: str = "", link: str = "", prefix_role: str = "auto") -> FunctionChange:
+    """Califica llamadas de consultas y fórmulas como ESQUEMA.FUNCIÓN@DBLINK."""
+
+    change = FunctionChange()
+    schema, link = schema.strip().upper(), link.strip().upper()
+    if prefix_role not in {"auto", "schema", "package"}:
+        change.error = "El prefijo debe interpretarse como esquema, paquete o automático."
+        return change
+    if schema and not NAME.fullmatch(schema):
+        change.error = f"«{schema}» no es un nombre de esquema válido (letras, números, _, $ o #)."
+        return change
+    if link and not LINK.fullmatch(link):
+        change.error = f"«{link}» no es un nombre de DB link válido (letras, números, _, $, # o puntos)."
+        return change
+    parts = _project_parts(Path(project_path))
+    if parts is None:
+        change.error = "No se pudo leer el .report.json."
+        return change
+    raw, _folder = parts
+    sources = _sources(Path(project_path))
+    internal = {source.unit.upper() for source in sources if source.unit}
+    wanted = {name.upper() for name in functions} if functions is not None else None
+    selected: list[tuple[_Source, list[tuple[FunctionSpan, str]]]] = []
+    for source in sources:
+        spans = [span for span in function_spans(source.code, internal)
+                 if wanted is None or span.function in wanted]
+        try:
+            targets = [(span, _function_target(span.text, schema, link, prefix_role))
+                       for span in spans]
+        except ValueError as exc:
+            change.error = f"{source.label}: {exc}"
+            return change
+        selected.append((source, targets))
+    for source, targets in selected:
+        new_code, count = source.code, 0
+        for span, target in sorted(targets, key=lambda item: item[0].start, reverse=True):
+            if span.text.upper() != target:
+                new_code = new_code[:span.start] + target + new_code[span.end:]
+                count += 1
+                change.functions.append(span.function)
+                change.replacements.append((span.text, target))
+        if not count:
+            continue
+        try:
+            source.path.parent.mkdir(parents=True, exist_ok=True)
+            if source.unit is None:
+                content = new_code
+            else:
+                two_part_prefix = any(len(span.text.split("@", 1)[0].split(".")) == 2
+                                      for span, _target in targets)
+                if prefix_role == "package" and two_part_prefix:
+                    new_code = re.sub(r"(?m)^-- ORIGEN_FUNCIONES_EXTERNAS_ROL=(?:PAQUETE|ESQUEMA)\s*\n", "", new_code)
+                    new_code = "-- ORIGEN_FUNCIONES_EXTERNAS_ROL=PAQUETE\n" + new_code
+                elif prefix_role == "schema" and two_part_prefix:
+                    new_code = re.sub(r"(?m)^-- ORIGEN_FUNCIONES_EXTERNAS_ROL=(?:PAQUETE|ESQUEMA)\s*\n", "", new_code)
+                    new_code = "-- ORIGEN_FUNCIONES_EXTERNAS_ROL=ESQUEMA\n" + new_code
+                if source.path.exists():
+                    content = new_code if "ORIGEN_FUNCIONES_EXTERNAS" in new_code else (
+                        "-- ORIGEN_FUNCIONES_EXTERNAS: administrado por el compilador\n" + new_code)
+                else:
+                    content = _function_file(source.unit, new_code)
+            source.path.write_text(content, encoding="utf-8", newline="\n")
+        except OSError as exc:
+            change.error = f"No se pudo escribir {source.path}: {exc}"
+            return change
+        change.files.append((source.path, count))
+    if change.files and not raw.get("reports_code"):
+        raw["reports_code"] = CODE_DIR
+        Path(project_path).write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n",
+                                      encoding="utf-8", newline="\n")
+    change.functions = sorted(set(change.functions))
+    if not change.files and change.error is None:
+        change.error = "No hay cambios: esas funciones ya tienen ese origen."
+    return change
+
+
+def restore_function_sources(project_path: Path, functions: list[str] | None) -> FunctionChange:
+    """Restaura referencias de funciones desde el RDF/XML sin reemplazar el SQL.
+
+    Solo cambia el nombre de la llamada. Conserva el resto del código manual y
+    deja una copia del override antes de escribir. Si las llamadas actuales no
+    se pueden emparejar con las originales, no modifica ningún archivo.
+    """
+
+    change = FunctionChange()
+    parts = _project_parts(Path(project_path))
+    if parts is None:
+        change.error = "No se pudo leer el .report.json."
+        return change
+    raw, folder = parts
+    model_file = raw.get("reports_model")
+    if not isinstance(model_file, str) or not model_file:
+        change.error = "Este proyecto no conserva un Modelo de Datos RDF/XML para restaurar las funciones."
+        return change
+    diagnostics = Diagnostics()
+    model = load_reports_model(folder / model_file, diagnostics)
+    if model is None:
+        change.error = "No se pudo leer el Modelo de Datos original del RDF/XML."
+        return change
+    sources = _sources(Path(project_path))
+    internal = {source.unit.upper() for source in sources if source.unit}
+    wanted = {name.upper() for name in functions} if functions is not None else None
+    planned: list[tuple[_Source, str, list[tuple[str, str]]]] = []
+    seen: set[str] = set()
+    for source in sources:
+        current = function_spans(source.code, internal)
+        selected = {span.function for span in current if wanted is None or span.function in wanted}
+        if not selected:
+            continue
+        seen |= selected
+        if source.unit is None:
+            query_name = next((name for name, file in (raw.get("queries") or {}).items()
+                               if folder / str(file) == source.path), None)
+            query = model.queries.get(query_name) if query_name else None
+            original_code = query.get("sql") if query else None
+        else:
+            original_code = model.program_units.get(source.unit)
+        if original_code is None:
+            change.error = f"{source.label}: la función no existe en el Modelo de Datos original."
+            return change
+        original = function_spans(original_code, internal)
+        replacements: list[tuple[FunctionSpan, str]] = []
+        for function in sorted(selected):
+            now = [span for span in current if span.function == function]
+            before = [span for span in original if span.function == function]
+            if len(now) != len(before) or not before:
+                change.error = (f"{source.label}: {function} tiene {len(now)} llamada(s) actuales y "
+                                f"{len(before)} en el RDF/XML. No se puede restaurar sin elegir cada llamada.")
+                return change
+            if len({span.text.upper() for span in before}) > 1:
+                change.error = (f"{source.label}: {function} tiene varias formas originales distintas. "
+                                "Revise esta fórmula manualmente para no intercambiarlas.")
+                return change
+            replacements.extend((span, original_span.text) for span, original_span in zip(now, before))
+        new_code = source.code
+        changed: list[tuple[str, str]] = []
+        for span, original_text in sorted(replacements, key=lambda pair: pair[0].start, reverse=True):
+            if span.text != original_text:
+                new_code = new_code[:span.start] + original_text + new_code[span.end:]
+                changed.append((span.text, original_text))
+        if changed:
+            planned.append((source, new_code, changed))
+    missing = wanted - seen if wanted is not None else set()
+    if missing:
+        change.error = "No se encontraron llamadas actuales para: " + ", ".join(sorted(missing)) + "."
+        return change
+    if not planned:
+        change.error = "Las funciones seleccionadas ya coinciden con las llamadas del RDF/XML."
+        return change
+    for source, code, replacements in planned:
+        try:
+            backup = source.path.with_name(source.path.name + ".restore.bak")
+            number = 2
+            while backup.exists():
+                backup = source.path.with_name(source.path.name + f".restore.{number}.bak")
+                number += 1
+            shutil.copy2(source.path, backup)
+            source.path.write_text(code, encoding="utf-8", newline="\n")
+        except OSError as exc:
+            change.error = f"No se pudo restaurar {source.path}: {exc}"
+            return change
+        change.backups.append(backup)
+        change.files.append((source.path, len(replacements)))
+        change.replacements.extend(replacements)
+    change.functions = sorted(seen)
+    return change
 
 
 def set_table_source(project_path: Path, tables: list[str] | None, schema: str = "", link: str = "") -> SourceChange:

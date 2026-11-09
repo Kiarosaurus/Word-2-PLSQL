@@ -86,7 +86,7 @@ class DocxReaderTests(unittest.TestCase):
                 expected = "DOCX-STRUCT-010" if zone == "header" else "DOCX-STRUCT-011"
                 self.assertIn(expected, {item.code for item in diagnostics.items})
 
-    def test_non_a4_paper_is_rejected(self) -> None:
+    def test_non_a4_paper_is_preserved(self) -> None:
         path = build_valid_docx(self.root / "letter.docx")
         document = Document(path)
         section = document.sections[0]
@@ -94,8 +94,9 @@ class DocxReaderTests(unittest.TestCase):
         section.page_height = Cm(27.94)
         document.save(path)
         diagnostics, model = self.read(path)
-        self.assertIsNone(model)
-        self.assertIn("DOCX-STYLE-010", {item.code for item in diagnostics.items})
+        self.assertIsNotNone(model)
+        self.assertEqual((model.page_width_mm, model.page_height_mm), (215.9, 279.4))
+        self.assertNotIn("DOCX-STYLE-010", {item.code for item in diagnostics.items})
 
     def test_runtime_font_size_limits_are_enforced_by_zone(self) -> None:
         cases = (

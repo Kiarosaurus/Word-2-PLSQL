@@ -14,6 +14,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
     TYPE t_name_map  IS TABLE OF VARCHAR2(128) INDEX BY VARCHAR2(128);
     TYPE t_rows      IS TABLE OF t_value_map INDEX BY PLS_INTEGER;     -- filas leídas de una tabla de datos
     TYPE t_row_flags IS TABLE OF BOOLEAN INDEX BY PLS_INTEGER;
+    TYPE t_heights   IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
     TYPE t_num_map   IS TABLE OF NUMBER INDEX BY VARCHAR2(4000);       -- subtotales por grupo
     TYPE t_keys      IS TABLE OF VARCHAR2(4000) INDEX BY PLS_INTEGER;
     -- Total acumulado fila a fila (numeración y acumulados de Reports).
@@ -334,6 +335,25 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         END IF;
     END on_row;
 
+    -- Filtros PL/SQL simples de grupos de Reports, compartidos por el detalle
+    -- impreso y por los resúmenes CS_ que vuelven a leer la consulta.
+    FUNCTION matches_rdf_row(p_query IN VARCHAR2) RETURN BOOLEAN IS
+        l_rules JSON_ARRAY_T := query_list(p_query, 'rf');
+        l_rule JSON_OBJECT_T;
+        l_value NUMBER;
+    BEGIN
+        IF l_rules IS NULL THEN RETURN TRUE; END IF;
+        FOR i IN 0 .. l_rules.get_size - 1 LOOP
+            l_rule := TREAT(l_rules.get(i) AS JSON_OBJECT_T);
+            l_value := as_number(value_of(l_rule.get_string('s')));
+            IF l_rule.has('trunc') THEN l_value := TRUNC(l_value); END IF;
+            IF l_value IS NULL OR l_value <= l_rule.get_number('v') THEN
+                RETURN FALSE;
+            END IF;
+        END LOOP;
+        RETURN TRUE;
+    END matches_rdf_row;
+
     -- Consulta escalar (grupo maestro): primera fila (que cumpla sus Data Links). Sin Data
     -- Links ni :COLUMNAS de otro grupo se lee una sola vez; si no, cada vez, porque depende
     -- de la fila padre.
@@ -491,8 +511,10 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
             read_row(l_cursor, l_desc, l_count, NULL, g_row);
             IF matches(l_query, g_row) THEN
                 remember(l_query, g_row);
-                l_value := value_of(l_source);
-                accumulate(l_fn, l_value, l_total, l_rows, l_result);
+                IF matches_rdf_row(l_query) THEN
+                    l_value := value_of(l_source);
+                    accumulate(l_fn, l_value, l_total, l_rows, l_result);
+                END IF;
             END IF;
         END LOOP;
         DBMS_SQL.CLOSE_CURSOR(l_cursor);
@@ -635,6 +657,16 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
                 -- Sin la columna en la consulta: fórmula, total o marcador de posición de Reports.
                 l_result := l_result || fmt(CASE WHEN g_scalars.EXISTS(l_name) THEN g_scalars(l_name)
                                                  ELSE value_of(SUBSTR(l_name, l_dot + 1)) END, l_mask);
+            ELSIF l_token LIKE 'LABEL:%' THEN
+                l_name := SUBSTR(l_token, 7);
+                l_dot := INSTR(l_name, '.');
+                IF l_dot > 0 THEN
+                    load_scalar_query(SUBSTR(l_name, 1, l_dot - 1));
+                END IF;
+                IF TRIM(fmt(CASE WHEN g_scalars.EXISTS(l_name) THEN g_scalars(l_name)
+                                 ELSE value_of(SUBSTR(l_name, l_dot + 1)) END, NULL)) IS NOT NULL THEN
+                    l_result := l_result || l_mask;
+                END IF;
             ELSIF l_token LIKE 'COLUMN:%' THEN
                 l_name := SUBSTR(l_token, 8);
                 l_result := l_result || fmt(value_of(SUBSTR(l_name, INSTR(l_name, '.') + 1)), l_mask);
@@ -665,7 +697,8 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
 
     -- Párrafo: ajusta el texto ya resuelto al ancho disponible antes de medirlo o dibujarlo.
     FUNCTION paragraph(
-        p_para IN JSON_OBJECT_T, p_x IN NUMBER, p_y IN NUMBER, p_w IN NUMBER, p_draw IN BOOLEAN
+        p_para IN JSON_OBJECT_T, p_x IN NUMBER, p_y IN NUMBER, p_w IN NUMBER, p_draw IN BOOLEAN,
+        p_clip IN BOOLEAN DEFAULT FALSE
     ) RETURN NUMBER IS
         TYPE t_fragment IS RECORD (
             txt VARCHAR2(32767),
@@ -692,6 +725,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         l_space       BOOLEAN;
         l_gap_w       NUMBER;
         l_piece_w     NUMBER;
+        l_full        BOOLEAN;
 
         FUNCTION width_of(p_run IN JSON_OBJECT_T, p_text IN VARCHAR2) RETURN NUMBER IS
         BEGIN
@@ -754,9 +788,25 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
             l_h := line_height(l_line, p_para.get_number('es'));
             l_pending := NULL;
             l_pending_run := NULL;
+            l_full := FALSE;
             FOR j IN 0 .. l_line.get_size - 1 LOOP
                 l_run := TREAT(l_line.get(j) AS JSON_OBJECT_T);
                 l_text := resolve(l_run.get_string('t'));
+                IF p_clip THEN
+                    IF l_text IS NOT NULL THEN
+                        FOR k IN 1 .. LENGTH(l_text) LOOP
+                            l_piece := SUBSTR(l_text, k, 1);
+                            l_piece_w := width_of(l_run, l_piece);
+                            IF l_w + l_piece_w > l_limit THEN
+                                l_full := TRUE;
+                                EXIT;
+                            END IF;
+                            add_piece(l_piece, j, l_piece_w);
+                        END LOOP;
+                    END IF;
+                    IF l_full THEN EXIT; END IF;
+                    CONTINUE;
+                END IF;
                 l_pos := 1;
                 WHILE l_pos <= LENGTH(l_text) LOOP
                     l_space := SUBSTR(l_text, l_pos, 1) IN (' ', CHR(9));
@@ -809,11 +859,11 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         RETURN l_y + NVL(p_para.get_number('af'), 0) - p_y;
     END paragraph;
 
-    FUNCTION paragraphs_height(p_paras IN JSON_ARRAY_T, p_w IN NUMBER) RETURN NUMBER IS
+    FUNCTION paragraphs_height(p_paras IN JSON_ARRAY_T, p_w IN NUMBER, p_clip IN BOOLEAN DEFAULT FALSE) RETURN NUMBER IS
         l_total NUMBER := 0;
     BEGIN
         FOR i IN 0 .. p_paras.get_size - 1 LOOP
-            l_total := l_total + paragraph(TREAT(p_paras.get(i) AS JSON_OBJECT_T), 0, 0, p_w, FALSE);
+            l_total := l_total + paragraph(TREAT(p_paras.get(i) AS JSON_OBJECT_T), 0, 0, p_w, FALSE, p_clip);
         END LOOP;
         RETURN l_total;
     END paragraphs_height;
@@ -854,7 +904,8 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
     END side;
 
     -- Fila de una tabla (maquetación o datos): devuelve la altura; dibuja si p_draw.
-    FUNCTION table_row(p_table IN JSON_OBJECT_T, p_row IN JSON_OBJECT_T, p_y IN NUMBER, p_draw IN BOOLEAN)
+    FUNCTION table_row(p_table IN JSON_OBJECT_T, p_row IN JSON_OBJECT_T, p_y IN NUMBER, p_draw IN BOOLEAN,
+                       p_fixed_height IN NUMBER DEFAULT NULL)
         RETURN NUMBER
     IS
         l_cells   JSON_ARRAY_T := p_row.get_array('cs');
@@ -872,7 +923,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
             l_cell := TREAT(l_cells.get(i) AS JSON_OBJECT_T);
             l_w := cell_w(p_table, l_cell.get_number('c'), NVL(l_cell.get_number('sp'), 1))
                    - l_pad.get_number(0) - l_pad.get_number(2);
-            l_h := GREATEST(l_h, paragraphs_height(l_cell.get_array('ps'), l_w)
+            l_h := GREATEST(l_h, paragraphs_height(l_cell.get_array('ps'), l_w, l_cell.has('clip'))
                    + l_pad.get_number(1) + l_pad.get_number(3));
         END LOOP;
         -- Incluso una altura exacta de Word debe crecer si el valor real ocupa más líneas:
@@ -880,6 +931,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         IF l_rule IN ('exact', 'atLeast') THEN
             l_h := GREATEST(l_h, p_row.get_number('h'));
         END IF;
+        IF p_fixed_height IS NOT NULL THEN l_h := p_fixed_height; END IF;
         IF NOT p_draw THEN
             RETURN l_h;
         END IF;
@@ -893,7 +945,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
                     rpt_pdf.rect(l_x, p_y, l_w, l_h, l_cell.get_string('fl'), NULL);
                 ELSIF pass = 2 THEN
                     l_content := paragraphs_height(
-                        l_cell.get_array('ps'), l_w - l_pad.get_number(0) - l_pad.get_number(2));
+                        l_cell.get_array('ps'), l_w - l_pad.get_number(0) - l_pad.get_number(2), l_cell.has('clip'));
                     l_y := p_y + l_pad.get_number(1);
                     IF l_cell.get_string('va') = 'C' THEN
                         l_y := p_y + (l_h - l_content) / 2;
@@ -902,7 +954,8 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
                     END IF;
                     FOR k IN 0 .. l_cell.get_array('ps').get_size - 1 LOOP
                         l_y := l_y + paragraph(TREAT(l_cell.get_array('ps').get(k) AS JSON_OBJECT_T),
-                            l_x + l_pad.get_number(0), l_y, l_w - l_pad.get_number(0) - l_pad.get_number(2), TRUE);
+                            l_x + l_pad.get_number(0), l_y, l_w - l_pad.get_number(0) - l_pad.get_number(2), TRUE,
+                            l_cell.has('clip'));
                     END LOOP;
                 ELSIF pass = 3 AND l_cell.has('b') THEN
                     l_borders := l_cell.get_object('b');
@@ -925,29 +978,147 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         END IF;
     END ensure;
 
-    PROCEDURE draw_rows(p_table IN JSON_OBJECT_T, p_rows IN JSON_ARRAY_T) IS
-        l_row JSON_OBJECT_T;
-        l_h   NUMBER;
+    FUNCTION plain_row(p_row IN JSON_OBJECT_T) RETURN JSON_OBJECT_T IS
+        l_result JSON_OBJECT_T := JSON_OBJECT_T();
+        l_cells  JSON_ARRAY_T := JSON_ARRAY_T();
+        l_cell   JSON_OBJECT_T;
+        l_all    JSON_ARRAY_T := p_row.get_array('cs');
     BEGIN
+        FOR i IN 0 .. l_all.get_size - 1 LOOP
+            l_cell := TREAT(l_all.get(i) AS JSON_OBJECT_T);
+            IF NOT l_cell.has('rs') THEN l_cells.append(l_cell); END IF;
+        END LOOP;
+        l_result.put('cs', l_cells);
+        l_result.put('h', p_row.get_number('h'));
+        l_result.put('hr', p_row.get_string('hr'));
+        RETURN l_result;
+    END plain_row;
+
+    FUNCTION single_cell_row(p_cell IN JSON_OBJECT_T) RETURN JSON_OBJECT_T IS
+        l_result JSON_OBJECT_T := JSON_OBJECT_T();
+        l_cells  JSON_ARRAY_T := JSON_ARRAY_T();
+    BEGIN
+        l_cells.append(p_cell);
+        l_result.put('cs', l_cells);
+        l_result.put('h', 0);
+        l_result.put('hr', 'auto');
+        RETURN l_result;
+    END single_cell_row;
+
+    PROCEDURE measure_rows(p_table IN JSON_OBJECT_T, p_rows IN JSON_ARRAY_T,
+                           p_heights OUT t_heights, p_total OUT NUMBER) IS
+        l_row     JSON_OBJECT_T;
+        l_cell    JSON_OBJECT_T;
+        l_cells   JSON_ARRAY_T;
+        l_span    PLS_INTEGER;
+        l_needed  NUMBER;
+        l_have    NUMBER;
+        l_extra   NUMBER;
+    BEGIN
+        p_heights.DELETE;
+        p_total := 0;
         IF p_rows IS NULL THEN RETURN; END IF;
         FOR i IN 0 .. p_rows.get_size - 1 LOOP
             l_row := TREAT(p_rows.get(i) AS JSON_OBJECT_T);
-            l_h := table_row(p_table, l_row, g_y, FALSE);
-            ensure(l_h);
-            l_h := table_row(p_table, l_row, g_y, TRUE);
-            g_y := g_y + l_h;
+            p_heights(i) := GREATEST(table_row(p_table, plain_row(l_row), 0, FALSE), 0.5);
+        END LOOP;
+        FOR i IN 0 .. p_rows.get_size - 1 LOOP
+            l_row := TREAT(p_rows.get(i) AS JSON_OBJECT_T);
+            l_cells := l_row.get_array('cs');
+            FOR j IN 0 .. l_cells.get_size - 1 LOOP
+                l_cell := TREAT(l_cells.get(j) AS JSON_OBJECT_T);
+                IF l_cell.has('rs') THEN
+                    l_span := l_cell.get_number('rs');
+                    IF l_span < 2 OR i + l_span > p_rows.get_size THEN
+                        RAISE_APPLICATION_ERROR(-20735, 'RPT_LAYOUT: combinación vertical fuera de la tabla.');
+                    END IF;
+                    l_needed := table_row(p_table, single_cell_row(l_cell), 0, FALSE);
+                    l_have := 0;
+                    FOR k IN i .. i + l_span - 1 LOOP l_have := l_have + p_heights(k); END LOOP;
+                    IF l_needed > l_have THEN
+                        l_extra := (l_needed - l_have) / l_span;
+                        FOR k IN i .. i + l_span - 1 LOOP p_heights(k) := p_heights(k) + l_extra; END LOOP;
+                    END IF;
+                END IF;
+            END LOOP;
+        END LOOP;
+        FOR i IN 0 .. p_rows.get_size - 1 LOOP p_total := p_total + p_heights(i); END LOOP;
+    END measure_rows;
+
+    PROCEDURE draw_rows(p_table IN JSON_OBJECT_T, p_rows IN JSON_ARRAY_T, p_flow IN BOOLEAN DEFAULT TRUE) IS
+        l_heights t_heights;
+        l_total   NUMBER;
+        l_cluster NUMBER;
+        l_span_h  NUMBER;
+        l_first   PLS_INTEGER := 0;
+        l_last    PLS_INTEGER;
+        l_scan    PLS_INTEGER;
+        l_row     JSON_OBJECT_T;
+        l_cell    JSON_OBJECT_T;
+        l_cells   JSON_ARRAY_T;
+        l_unused  NUMBER;
+    BEGIN
+        IF p_rows IS NULL THEN RETURN; END IF;
+        measure_rows(p_table, p_rows, l_heights, l_total);
+        WHILE l_first < p_rows.get_size LOOP
+            l_last := l_first;
+            l_scan := l_first;
+            WHILE l_scan <= l_last LOOP
+                l_row := TREAT(p_rows.get(l_scan) AS JSON_OBJECT_T);
+                l_cells := l_row.get_array('cs');
+                FOR j IN 0 .. l_cells.get_size - 1 LOOP
+                    l_cell := TREAT(l_cells.get(j) AS JSON_OBJECT_T);
+                    IF l_cell.has('rs') THEN
+                        l_last := GREATEST(l_last, l_scan + l_cell.get_number('rs') - 1);
+                    END IF;
+                END LOOP;
+                l_scan := l_scan + 1;
+            END LOOP;
+            l_cluster := 0;
+            FOR i IN l_first .. l_last LOOP l_cluster := l_cluster + l_heights(i); END LOOP;
+            IF p_flow THEN
+                IF l_last > l_first AND l_cluster > g_limit - g_top THEN
+                    RAISE_APPLICATION_ERROR(-20736, 'RPT_LAYOUT: combinación vertical más alta que una página.');
+                END IF;
+                ensure(l_cluster);
+            END IF;
+            FOR i IN l_first .. l_last LOOP
+                l_row := TREAT(p_rows.get(i) AS JSON_OBJECT_T);
+                l_unused := table_row(p_table, plain_row(l_row), g_y, TRUE, l_heights(i));
+                l_cells := l_row.get_array('cs');
+                FOR j IN 0 .. l_cells.get_size - 1 LOOP
+                    l_cell := TREAT(l_cells.get(j) AS JSON_OBJECT_T);
+                    IF l_cell.has('rs') THEN
+                        l_span_h := 0;
+                        FOR k IN i .. i + l_cell.get_number('rs') - 1 LOOP
+                            l_span_h := l_span_h + l_heights(k);
+                        END LOOP;
+                        l_unused := table_row(p_table, single_cell_row(l_cell), g_y, TRUE, l_span_h);
+                    END IF;
+                END LOOP;
+                g_y := g_y + l_heights(i);
+            END LOOP;
+            l_first := l_last + 1;
         END LOOP;
     END draw_rows;
 
     FUNCTION rows_height(p_table IN JSON_OBJECT_T, p_rows IN JSON_ARRAY_T) RETURN NUMBER IS
-        l_total NUMBER := 0;
+        l_heights t_heights;
+        l_total   NUMBER;
     BEGIN
-        IF p_rows IS NULL THEN RETURN 0; END IF;
-        FOR i IN 0 .. p_rows.get_size - 1 LOOP
-            l_total := l_total + table_row(p_table, TREAT(p_rows.get(i) AS JSON_OBJECT_T), 0, FALSE);
-        END LOOP;
+        measure_rows(p_table, p_rows, l_heights, l_total);
         RETURN l_total;
     END rows_height;
+
+    FUNCTION row_slice(p_rows IN JSON_ARRAY_T, p_first IN PLS_INTEGER, p_last IN PLS_INTEGER)
+        RETURN JSON_ARRAY_T IS
+        l_result JSON_ARRAY_T := JSON_ARRAY_T();
+    BEGIN
+        FOR i IN p_first .. p_last LOOP
+            l_result.append(p_rows.get(i));
+        END LOOP;
+        RETURN l_result;
+    END row_slice;
 
     -- Clave de un grupo de ruptura: valores de sus columnas en la fila.
     FUNCTION group_key(p_row IN t_value_map, p_cols IN JSON_ARRAY_T) RETURN VARCHAR2 IS
@@ -1010,6 +1181,7 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         l_page_header JSON_ARRAY_T := JSON_ARRAY_T(); -- encabezados y títulos del grupo al paginar
         l_body   JSON_OBJECT_T := p_table.get_object('bd');
         l_footer JSON_ARRAY_T  := p_table.get_array('ft');
+        l_gfooter JSON_OBJECT_T := CASE WHEN p_table.has('gf') THEN p_table.get_object('gf') END;
         l_sums   JSON_ARRAY_T  := p_table.get_array('sm');
         l_query  VARCHAR2(128) := p_table.get_string('q');
         l_hide   BOOLEAN := p_table.has('he');
@@ -1023,6 +1195,12 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         l_visible t_row_flags;
         l_vcounts t_num_map;
         l_rules  JSON_ARRAY_T := CASE WHEN p_table.has('vis') THEN p_table.get_array('vis') END;
+        l_gt_rules JSON_ARRAY_T := CASE WHEN p_table.has('gt') THEN p_table.get_array('gt') END;
+        l_gt_values t_num_map;
+        l_gt_rule JSON_OBJECT_T;
+        l_gt_key VARCHAR2(4000);
+        l_gt_source VARCHAR2(128);
+        l_any_visible BOOLEAN := FALSE;
         l_show   BOOLEAN;
         l_n      PLS_INTEGER := 0;
         l_totals t_value_map;
@@ -1035,12 +1213,17 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         l_new    BOOLEAN;
         l_row    JSON_OBJECT_T;
         l_follow NUMBER;
+        l_j      PLS_INTEGER;
+        l_last   PLS_INTEGER;
+        l_scan   PLS_INTEGER;
+        l_cells  JSON_ARRAY_T;
+        l_cell   JSON_OBJECT_T;
+        l_cluster JSON_ARRAY_T;
 
         -- Datos de la fila recién leída (en g_row): fórmulas, acumulados y totales.
         PROCEDURE take_row IS
             l_holder JSON_KEY_LIST;
         BEGIN
-            on_row(l_query, g_row);
             IF g_holders IS NOT NULL THEN            -- marcadores de posición asignados en esta fila
                 l_holder := g_holders.get_keys;
                 FOR i IN 1 .. l_holder.COUNT LOOP
@@ -1069,6 +1252,12 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
                             l_gsums(l_gkey) := CASE WHEN l_gsums.EXISTS(l_gkey) THEN l_gsums(l_gkey) ELSE 0 END
                                                + NVL(g_row(l_key).n, 0);
                         END LOOP;
+                        IF l_gfooter IS NOT NULL THEN
+                            l_gkey := 'F' || CHR(2) || l_key || CHR(2)
+                                      || group_key(g_row, l_gfooter.get_array('g'));
+                            l_gsums(l_gkey) := CASE WHEN l_gsums.EXISTS(l_gkey) THEN l_gsums(l_gkey) ELSE 0 END
+                                               + NVL(g_row(l_key).n, 0);
+                        END IF;
                     END IF;
                 END IF;
             END LOOP;
@@ -1084,7 +1273,9 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
                 l_page_header.append(l_row);
             END IF;
         END LOOP;
-        l_buffer := l_hide OR p_table.has('hs') OR l_groups.get_size > 0 OR l_rules IS NOT NULL;
+        l_buffer := l_hide OR p_table.has('hs') OR l_groups.get_size > 0 OR l_rules IS NOT NULL
+                    OR l_gt_rules IS NOT NULL
+                    OR l_gfooter IS NOT NULL;
         g_sums.DELETE;
         l_zero.kind := 'N'; l_zero.n := 0;
         FOR i IN 0 .. l_sums.get_size - 1 LOOP
@@ -1120,18 +1311,25 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
             g_row.DELETE;
             read_row(l_cursor, l_desc, l_count, NULL, g_row);
             CONTINUE WHEN NOT matches(l_query, g_row);
+            on_row(l_query, g_row);
+            CONTINUE WHEN NOT matches_rdf_row(l_query);
             take_row;
+            IF l_gt_rules IS NOT NULL THEN
+                FOR i IN 0 .. l_gt_rules.get_size - 1 LOOP
+                    l_gt_rule := TREAT(l_gt_rules.get(i) AS JSON_OBJECT_T);
+                    l_gt_source := UPPER(l_gt_rule.get_string('s'));
+                    l_gt_key := i || CHR(2) || group_key(g_row, l_gt_rule.get_array('g'));
+                    l_gt_values(l_gt_key) := CASE WHEN l_gt_values.EXISTS(l_gt_key)
+                                                  THEN l_gt_values(l_gt_key) ELSE 0 END
+                                             + CASE WHEN g_row.EXISTS(l_gt_source)
+                                                    THEN NVL(as_number(g_row(l_gt_source)), 0) ELSE 0 END;
+                END LOOP;
+            END IF;
             l_show := visible_row(l_rules, g_row);
             IF l_buffer THEN
                 l_n := l_n + 1;
                 l_rows(l_n) := g_row;
                 l_visible(l_n) := l_show;
-                IF l_show AND p_table.has('vg') THEN
-                    FOR j IN 0 .. l_groups.get_size - 1 LOOP
-                        l_gkey := j || CHR(2) || group_key(g_row, TREAT(l_groups.get(j) AS JSON_OBJECT_T).get_array('g'));
-                        l_vcounts(l_gkey) := CASE WHEN l_vcounts.EXISTS(l_gkey) THEN l_vcounts(l_gkey) ELSE 0 END + 1;
-                    END LOOP;
-                END IF;
             ELSE
                 IF l_show THEN data_row(p_table, l_body, l_header); END IF;
             END IF;
@@ -1139,7 +1337,30 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         DBMS_SQL.CLOSE_CURSOR(l_cursor);
 
         IF l_buffer THEN
-            IF l_n = 0 AND l_hide THEN
+            FOR r IN 1 .. l_n LOOP
+                IF l_gt_rules IS NOT NULL THEN
+                    FOR i IN 0 .. l_gt_rules.get_size - 1 LOOP
+                        l_gt_rule := TREAT(l_gt_rules.get(i) AS JSON_OBJECT_T);
+                        l_gt_key := i || CHR(2) || group_key(l_rows(r), l_gt_rule.get_array('g'));
+                        IF NOT l_gt_values.EXISTS(l_gt_key) OR
+                           l_gt_values(l_gt_key) <= l_gt_rule.get_number('v') THEN
+                            l_visible(r) := FALSE;
+                            EXIT;
+                        END IF;
+                    END LOOP;
+                END IF;
+                IF l_visible(r) THEN
+                    l_any_visible := TRUE;
+                    IF p_table.has('vg') THEN
+                        FOR j IN 0 .. l_groups.get_size - 1 LOOP
+                            l_gkey := j || CHR(2) || group_key(l_rows(r), TREAT(l_groups.get(j) AS JSON_OBJECT_T).get_array('g'));
+                            l_vcounts(l_gkey) := CASE WHEN l_vcounts.EXISTS(l_gkey)
+                                                      THEN l_vcounts(l_gkey) ELSE 0 END + 1;
+                        END LOOP;
+                    END IF;
+                END IF;
+            END LOOP;
+            IF NOT l_any_visible AND l_hide THEN
                 RETURN;                               -- sin filas: la sección no se imprime
             END IF;
             l_totals := g_sums;
@@ -1148,32 +1369,78 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
             draw_rows(p_table, l_header);
             FOR r IN 1 .. l_n LOOP
                 g_row := l_rows(r);
+                IF l_gfooter IS NOT NULL AND r > 1 AND
+                   group_key(l_rows(r - 1), l_gfooter.get_array('g')) <>
+                   group_key(g_row, l_gfooter.get_array('g')) THEN
+                    rpt_pdf.new_page;
+                    g_y := g_top;
+                    draw_rows(p_table, l_header);
+                END IF;
                 l_new := FALSE;
-                FOR j IN 0 .. l_groups.get_size - 1 LOOP
-                    l_row := TREAT(l_groups.get(j) AS JSON_OBJECT_T);
+                l_j := 0;
+                WHILE l_j < l_groups.get_size LOOP
+                    -- Una celda vertical une títulos consecutivos del mismo grupo.
+                    l_last := l_j;
+                    l_scan := l_j;
+                    WHILE l_scan <= l_last LOOP
+                        l_row := TREAT(l_groups.get(l_scan) AS JSON_OBJECT_T);
+                        l_cells := l_row.get_array('cs');
+                        FOR c IN 0 .. l_cells.get_size - 1 LOOP
+                            l_cell := TREAT(l_cells.get(c) AS JSON_OBJECT_T);
+                            IF l_cell.has('rs') THEN
+                                l_last := GREATEST(l_last, l_scan + l_cell.get_number('rs') - 1);
+                                IF l_last >= l_groups.get_size THEN
+                                    RAISE_APPLICATION_ERROR(-20735, 'RPT_LAYOUT: combinación vertical fuera del grupo.');
+                                END IF;
+                            END IF;
+                        END LOOP;
+                        l_scan := l_scan + 1;
+                    END LOOP;
+                    l_row := TREAT(l_groups.get(l_j) AS JSON_OBJECT_T);
                     l_gkey := group_key(g_row, l_row.get_array('g'));
-                    IF l_new OR NOT l_prev.EXISTS(j) OR l_prev(j) <> l_gkey THEN
+                    IF l_new OR NOT l_prev.EXISTS(l_j) OR l_prev(l_j) <> l_gkey THEN
                         l_new := TRUE;                -- cambia este grupo y los de adentro
-                        l_prev(j) := l_gkey;
-                        IF NOT p_table.has('vg') OR l_vcounts.EXISTS(j || CHR(2) || l_gkey) THEN
+                        FOR k IN l_j .. l_last LOOP
+                            l_prev(k) := group_key(g_row, TREAT(l_groups.get(k) AS JSON_OBJECT_T).get_array('g'));
+                        END LOOP;
+                        IF NOT p_table.has('vg') OR l_vcounts.EXISTS(l_j || CHR(2) || l_gkey) THEN
                             FOR i IN 0 .. l_sums.get_size - 1 LOOP   -- subtotales del grupo
                                 l_key := UPPER(l_sums.get_string(i));
                                 IF l_totals.EXISTS(l_key) THEN
-                                    g_sums(l_key).n := CASE WHEN l_gsums.EXISTS(j || CHR(2) || l_key || CHR(2) || l_gkey)
-                                                            THEN l_gsums(j || CHR(2) || l_key || CHR(2) || l_gkey) ELSE 0 END;
+                                    g_sums(l_key).n := CASE WHEN l_gsums.EXISTS(l_j || CHR(2) || l_key || CHR(2) || l_gkey)
+                                                            THEN l_gsums(l_j || CHR(2) || l_key || CHR(2) || l_gkey) ELSE 0 END;
                                 END IF;
                             END LOOP;
+                            l_cluster := row_slice(l_groups, l_j, l_last);
                             l_follow := table_row(p_table, l_body, 0, FALSE);
-                            FOR k IN j + 1 .. l_groups.get_size - 1 LOOP
-                                l_follow := l_follow + table_row(
-                                    p_table, TREAT(l_groups.get(k) AS JSON_OBJECT_T), 0, FALSE);
-                            END LOOP;
-                            data_row(p_table, l_row, l_header, l_follow);
+                            l_follow := l_follow + rows_height(
+                                p_table, row_slice(l_groups, l_last + 1, l_groups.get_size - 1));
+                            IF g_y + rows_height(p_table, l_cluster) + l_follow > g_limit AND g_y > g_top + 0.01 THEN
+                                rpt_pdf.new_page;
+                                g_y := g_top;
+                                draw_rows(p_table, l_header);
+                            END IF;
+                            draw_rows(p_table, l_cluster);
                             g_sums := l_totals;
                         END IF;
                     END IF;
+                    l_j := l_last + 1;
                 END LOOP;
                 IF l_visible(r) THEN data_row(p_table, l_body, l_page_header); END IF;
+                IF l_gfooter IS NOT NULL AND (r = l_n OR
+                   group_key(g_row, l_gfooter.get_array('g')) <>
+                   group_key(l_rows(r + 1), l_gfooter.get_array('g'))) THEN
+                    l_gkey := group_key(g_row, l_gfooter.get_array('g'));
+                    FOR i IN 0 .. l_sums.get_size - 1 LOOP
+                        l_key := UPPER(l_sums.get_string(i));
+                        IF l_totals.EXISTS(l_key) THEN
+                            g_sums(l_key).n := CASE WHEN l_gsums.EXISTS('F' || CHR(2) || l_key || CHR(2) || l_gkey)
+                                                    THEN l_gsums('F' || CHR(2) || l_key || CHR(2) || l_gkey) ELSE 0 END;
+                        END IF;
+                    END LOOP;
+                    draw_rows(p_table, l_gfooter.get_array('rs'));
+                    g_sums := l_totals;
+                END IF;
             END LOOP;
         END IF;
         draw_rows(p_table, l_footer);
@@ -1189,20 +1456,14 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
     BEGIN
         FOR i IN 0 .. p_blocks.get_size - 1 LOOP
             l_block := TREAT(p_blocks.get(i) AS JSON_OBJECT_T);
+            IF l_block.has('bottom_only') THEN CONTINUE; END IF;
             CASE l_block.get_string('k')
                 WHEN 'P' THEN
                     l_h := paragraph(l_block, g_left, 0, g_width, FALSE);
                     IF p_flow THEN ensure(l_h); END IF;
                     g_y := g_y + paragraph(l_block, g_left, g_y, g_width, TRUE);
                 WHEN 'G' THEN
-                    IF p_flow THEN
-                        draw_rows(l_block, l_block.get_array('rs'));
-                    ELSE
-                        FOR r IN 0 .. l_block.get_array('rs').get_size - 1 LOOP
-                            g_y := g_y + table_row(l_block,
-                                TREAT(l_block.get_array('rs').get(r) AS JSON_OBJECT_T), g_y, TRUE);
-                        END LOOP;
-                    END IF;
+                    draw_rows(l_block, l_block.get_array('rs'), p_flow);
                 WHEN 'D' THEN
                     data_table(l_block);
             END CASE;
@@ -1238,9 +1499,11 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         l_page   JSON_OBJECT_T := l_layout.get_object('page');
         l_header JSON_ARRAY_T  := l_layout.get_array('header');
         l_footer JSON_ARRAY_T  := l_layout.get_array('footer');
+        l_bottom JSON_ARRAY_T  := CASE WHEN l_layout.has('bottom') THEN l_layout.get_array('bottom') END;
         l_keys   JSON_KEY_LIST;
         l_header_h NUMBER;
         l_footer_h NUMBER;
+        l_bottom_h NUMBER;
         l_height   NUMBER := l_page.get_number('h');
     BEGIN
         g_queries := JSON_OBJECT_T.parse(p_queries);
@@ -1296,7 +1559,10 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
         g_page := NULL; g_pages := NULL;          -- {{PAGE}} solo tiene sentido al dibujar encabezado y pie
         -- El ajuste automático mide texto también al calcular la altura de encabezado y pie.
         -- Las métricas de fuente de RPT_PDF deben estar listas antes de blocks_height.
-        rpt_pdf.new_document(p_landscape => l_page.get_number('w') > l_height);
+        rpt_pdf.new_document(
+            p_width_mm  => l_page.get_number('w'),
+            p_height_mm => l_height
+        );
         l_header_h := blocks_height(l_header);
         l_footer_h := blocks_height(l_footer);
         g_top   := GREATEST(l_page.get_number('mt'), l_page.get_number('hd') + l_header_h);
@@ -1304,6 +1570,18 @@ CREATE OR REPLACE PACKAGE BODY rpt_layout AS
 
         g_y := g_top;
         blocks(l_layout.get_array('body'), TRUE);
+        IF l_bottom IS NOT NULL THEN
+            l_bottom_h := blocks_height(l_bottom);
+            IF l_bottom_h > g_limit - g_top THEN
+                RAISE_APPLICATION_ERROR(-20736, 'RPT_LAYOUT: el bloque inferior no cabe en una página.');
+            END IF;
+            IF g_y + l_bottom_h > g_limit THEN
+                rpt_pdf.new_page;
+                g_y := g_top;
+            END IF;
+            g_y := g_limit - l_bottom_h;
+            blocks(l_bottom, FALSE);
+        END IF;
 
         g_pages := rpt_pdf.page_count;
         FOR p IN 1 .. g_pages LOOP

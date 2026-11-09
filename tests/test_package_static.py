@@ -123,7 +123,8 @@ class PackageStaticContractTests(unittest.TestCase):
         body_signature = implementation.split("\n    is", 1)[0]
         self.assertNotIn("p_paper_size", body_signature)
         self.assertNotIn("p_auto_reserve_pct", body_signature)
-        self.assertIn("apex_data_export.c_size_a4", implementation)
+        self.assertIn("apex_data_export.c_size_custom", implementation)
+        self.assertIn("apex_data_export.c_unit_millimeters", implementation)
         self.assertIn("c_auto_reserve_pct", implementation)
 
     def test_package_keeps_invoker_rights(self) -> None:

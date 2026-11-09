@@ -93,7 +93,7 @@ def page_item_rows(result: CompilationResult) -> list[tuple[str, ...]]:
                 project.orientation_item,
                 _page_of(project.orientation_item),
                 "Select List o Radio Group",
-                "orientación A4",
+                "orientación del papel del Word",
                 "valores de retorno exactos: AUTO, PORTRAIT, LANDSCAPE",
             )
         )

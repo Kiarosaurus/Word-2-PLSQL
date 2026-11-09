@@ -29,6 +29,8 @@ DOWNLOAD_QUERY_SIGNATURE = (
     "p_orientation IN VARCHAR2 DEFAULT 'AUTO'",
     "p_excluded_columns_json IN CLOB DEFAULT NULL",
     "p_column_widths_json IN CLOB DEFAULT NULL",
+    "p_page_width_mm IN NUMBER DEFAULT 210",
+    "p_page_height_mm IN NUMBER DEFAULT 297",
 )
 IG_COMMON = (
     "p_application_id IN NUMBER",
@@ -193,8 +195,8 @@ class PackageSemanticContractTests(unittest.TestCase):
                 "p_orientation            IN VARCHAR2 DEFAULT 'LANDSCAPE',\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json",
             ),
             "parámetros intercambiados": (
-                "        p_title                  IN VARCHAR2 DEFAULT 'Reporte',\n        p_file_name              IN VARCHAR2 DEFAULT 'reporte',\n        p_format                 IN VARCHAR2 DEFAULT 'PDF',\n        p_orientation            IN VARCHAR2 DEFAULT 'AUTO',\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json     IN CLOB DEFAULT NULL\n    );\n\nEND",
-                "        p_file_name              IN VARCHAR2 DEFAULT 'reporte',\n        p_title                  IN VARCHAR2 DEFAULT 'Reporte',\n        p_format                 IN VARCHAR2 DEFAULT 'PDF',\n        p_orientation            IN VARCHAR2 DEFAULT 'AUTO',\n        p_excluded_columns_json  IN CLOB DEFAULT NULL,\n        p_column_widths_json     IN CLOB DEFAULT NULL\n    );\n\nEND",
+                "        p_title                  IN VARCHAR2 DEFAULT 'Reporte',\n        p_file_name              IN VARCHAR2 DEFAULT 'reporte',",
+                "        p_file_name              IN VARCHAR2 DEFAULT 'reporte',\n        p_title                  IN VARCHAR2 DEFAULT 'Reporte',",
             ),
             "cierre en stop engine eliminado": (
                 "        WHEN apex_application.e_stop_apex_engine THEN\n            IF l_context_is_open THEN\n                apex_exec.close(l_context);",

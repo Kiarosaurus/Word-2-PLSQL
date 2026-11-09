@@ -64,6 +64,8 @@ class ReportsModel:
     links: list[dict] = field(default_factory=list)
     program_units: dict[str, str] = field(default_factory=dict)  # nombre (minúsculas) -> PL/SQL
     groups: dict[str, list[str]] = field(default_factory=dict)    # grupo (mayúsculas) -> columnas propias
+    group_visibility: dict[str, list[dict]] = field(default_factory=dict)  # consulta -> total de grupo exigido por marco RDF
+    row_visibility: dict[str, list[dict]] = field(default_factory=dict)    # consulta -> filtro PL/SQL simple del grupo RDF
     title: str | None = None     # texto del título en el margen del diseño (DETALLE DEL PRÉSTAMO...)
 
     # ------------------------------------------------------------ resolución
@@ -317,6 +319,52 @@ def load_reports_model(xml_path: Path, diagnostics: Diagnostics) -> ReportsModel
         name, source = _ident(item.get("name")), _ident(item.get("source"))
         if name and source:
             model.fields[name] = (source, _report_mask(item.get("formatMask")))
+    for frame in root.iter("repeatingFrame"):
+        group_name = (frame.get("source") or "").upper()
+        layout = frame.find("advancedLayout")
+        trigger_name = (layout.get("formatTrigger") or "").lower() if layout is not None else ""
+        code = functions.get(trigger_name, "")
+        # Oracle Reports oculta el marco completo cuando el total del grupo
+        # no es positivo. Solo se convierte esta forma inequívoca del trigger.
+        match = re.fullmatch(
+            r"(?is)\s*function\s+\w+\s+return\s+boolean\s+is\s+begin\s+"
+            r"if\s+:([A-Za-z][A-Za-z0-9_$#]*)\s*>\s*0\s+then\s+"
+            r"return\s*\(?\s*true\s*\)?\s*;\s+else\s+"
+            r"return\s*\(?\s*false\s*\)?\s*;\s+end\s+if\s*;\s*end\s*;\s*",
+            code,
+        )
+        summary = model.columns.get(match.group(1).upper()) if match else None
+        source = model.columns.get(summary.source or "") if summary is not None else None
+        keys = model.groups.get(group_name)
+        if (summary is not None and summary.kind == "summary" and summary.function == "sum"
+                and summary.group and summary.group.upper() == group_name and summary.reset == group_name
+                and source is not None and source.datatype == "N" and source.query == summary.query
+                and keys and all(model.columns.get(key) is not None
+                                 and model.columns[key].query == source.query for key in keys)):
+            rule = {"g": keys, "s": source.name, "op": ">", "v": 0,
+                    "summary": summary.name, "frame": frame.get("name")}
+            model.group_visibility.setdefault(source.query, []).append(rule)
+    for data_source in data.findall("dataSource"):
+        query = _ident(data_source.get("name"))
+        if query is None:
+            continue
+        for group in data_source.iter("group"):
+            group_name = (group.get("name") or "").upper()
+            filter_node = group.find("filter")
+            trigger_name = (filter_node.get("plsqlFilter") or "").lower() if filter_node is not None else ""
+            code = functions.get(trigger_name, "")
+            match = re.fullmatch(
+                r"(?is)\s*function\s+\w+\s+return\s+boolean\s+is\s+begin\s+"
+                r"if\s+trunc\s*\(\s*:([A-Za-z][A-Za-z0-9_$#]*)\s*\)\s*>\s*0\s+then\s+"
+                r"return\s*\(?\s*true\s*\)?\s*;\s+else\s+"
+                r"return\s*\(?\s*false\s*\)?\s*;\s+end\s+if\s*;\s*end\s*;\s*",
+                code,
+            )
+            column = model.columns.get(match.group(1).upper()) if match else None
+            if column is not None and column.kind == "formula" and column.group \
+                    and column.group.upper() == group_name and column.query == query and column.datatype == "N":
+                model.row_visibility.setdefault(query, []).append(
+                    {"s": column.name, "op": ">", "v": 0, "trunc": True, "group": group_name})
     model.title = _margin_title(root)
     return model
 
